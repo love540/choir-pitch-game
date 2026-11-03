@@ -939,10 +939,15 @@
   // ---------- 화면 ----------
   const $ = (s) => document.querySelector(s);
 
+  // 단계 목록을 떠날 때 보던 위치를 기억했다가, 돌아오면 그 자리로
+  let currentScreen = '#screen-menu';
+  let menuScrollY = 0;
   function show(id) {
+    if (currentScreen === '#screen-menu' && id !== '#screen-menu') menuScrollY = window.scrollY;
     for (const s of ['#screen-menu', '#screen-game', '#screen-summary', '#screen-calib']) $(s).hidden = s !== id;
-    window.scrollTo(0, 0);
+    currentScreen = id;
     if (viz) viz.resize();
+    window.scrollTo(0, id === '#screen-menu' ? menuScrollY : 0);
   }
 
   function renderMenu() {
