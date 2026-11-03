@@ -47,7 +47,7 @@
       ],
     },
     {
-      id: 'chord', title: '화음 청음', desc: '세 음이 함께 울리는 화음을 듣고 밝기를 구별하거나, 화음 속 한 음을 찾아요.',
+      id: 'chord', title: '화음 청음', desc: '세 음이 함께 울리는 화음을 듣고 밝기를 구별하거나, 화음 속 한 음을 찾고 불러 봐요.',
       stages: [
         { id: 1, kind: 'quality', title: '장조·단조 · 펼친 화음', desc: '한 음씩 들려준 뒤 함께 울려요', types: ['maj', 'min'], arpeggio: true, ref: false },
         { id: 2, kind: 'quality', title: '장조·단조', desc: '함께 울리는 화음만 듣고 구별', types: ['maj', 'min'], ref: false },
@@ -83,6 +83,12 @@
     ],
   });
   GAMES[1].stages.forEach((s) => { s.count = 1; s.black = true; });
+  // 화음 속 한 음 부르기 (마이크): 화음만 듣고, 고른 성부의 음을 불러요
+  GAMES[1].stages.push(
+    { id: 7, kind: 'sing', chordSing: true, voice: 'bass', title: '🎤 베이스 음 부르기', desc: '화음만 듣고 가장 낮은 음을 불러요 · ±50센트', types: ['maj', 'min'], inv: false, tol: 50, count: 0, black: false },
+    { id: 8, kind: 'sing', chordSing: true, voice: 'top', title: '🎤 소프라노 음 부르기', desc: '화음만 듣고 가장 높은 음을 불러요 · ±50센트', types: ['maj', 'min'], inv: false, tol: 50, count: 0, black: false },
+    { id: 9, kind: 'sing', chordSing: true, voice: 'mid', title: '🎤 가운데 음 부르기', desc: '자리바꿈 화음에서 알토처럼 가운데 음 · ±50센트', types: ['maj', 'min'], inv: true, tol: 50, count: 0, black: false },
+  );
   GAMES[2].stages.forEach((s) => { s.count = 0; s.black = false; s.ref = false; });
   const SING_REFS = [57, 59, 60, 62, 64, 65, 67]; // 라3 ~ 솔4
   const SING_IVS = [-7, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 7];
@@ -210,7 +216,7 @@
   function playRef() {
     ensureAudio();
     const t = ctx.currentTime + 0.05;
-    tone(q.kind === 'sing' ? q.ref : REF, t, 1.0);
+    if (q.chordSing) chordTone(q.chord, t, 1.0); else tone(q.kind === 'sing' ? q.ref : REF, t, 1.0);
     timeline = [{ start: t, end: t + 1.0, kind: 'ref' }];
     setBusy(1.1);
   }
@@ -303,7 +309,7 @@
     let chord, type, key;
     do {
       type = pick(stage.types);
-      const inv = stage.kind === 'voice' ? Math.floor(Math.random() * 3) : 0;
+      const inv = stage.kind === 'voice' || stage.inv ? Math.floor(Math.random() * 3) : 0;
       do {
         const root = 53 + Math.floor(Math.random() * 19);
         chord = CHORDS[type].iv.map((i) => root + i);
@@ -314,6 +320,7 @@
     lastKey = key;
     if (stage.kind === 'quality') return { kind: 'quality', chord, quality: type, notes: [] };
     const target = chord[VOICES[stage.voice].pickIdx];
+    if (stage.chordSing) return { kind: 'sing', chordSing: true, chord, quality: type, target, notes: [target], frames: [], sung: null, state: 'idle' };
     return { kind: 'voice', chord, quality: type, target, notes: [target] };
   }
 
@@ -349,7 +356,7 @@
 
   const makeQuestion = () => (stage.kind === 'seq' ? makeSeqQuestion()
     : stage.kind === 'rhythm' ? makeRhythmQuestion()
-    : stage.kind === 'sing' ? makeSingQuestion() : makeChordQuestion());
+    : stage.kind === 'sing' && !stage.chordSing ? makeSingQuestion() : makeChordQuestion());
 
   // ---------- 첫 음 잡기 (마이크로 음정 재기) ----------
   // 녹음은 저장하지 않는다. 마이크 소리에서 그때그때 음 높이만 재고 버린다.
@@ -401,7 +408,7 @@
     }
     return { freq: sr / better, clarity: 1 - d[tau], rms };
   }
-  window.ChoirPitch = { detect: detectPitch }; // 테스트용
+  window.ChoirPitch = { detect: detectPitch, question: () => q }; // 테스트용
 
   function makeSingQuestion() {
     let ref, target, key;
@@ -454,6 +461,12 @@
   }
 
   function renderSingTarget() {
+    if (q.chordSing) {
+      $('#sing-ref').textContent = '화음 속에서';
+      $('#sing-note').textContent = { bass: '베이스', top: '소프라노', mid: '가운데 음' }[stage.voice];
+      $('#sing-interval').textContent = graded ? `${q.chord.map(noteName).join('·')} ${CHORDS[q.quality].name} → ${NAMES[q.target % 12]}` : VOICES[stage.voice].label;
+      return;
+    }
     $('#sing-ref').textContent = `기준음 ${noteName(q.ref)}`;
     $('#sing-note').textContent = NAMES[q.target % 12];
     $('#sing-interval').textContent = intervalText(q.ref, q.target);
@@ -475,17 +488,24 @@
     stopSing();
     q.frames = [];
     q.sung = null;
-    singStatus('👂 기준음을 들어 보세요');
     const t = ctx.currentTime + 0.1;
-    tone(q.ref, t, 1.2);
-    timeline = [{ start: t, end: t + 1.2, kind: 'ref' }];
-    const wait = (t - ctx.currentTime) + 1.2 + 0.55 + (stage.delay || 0); // 기준음 여운이 마이크에 섞이지 않게 조금 쉬고
+    let dur = 1.2;
+    if (q.chordSing) { // 화음: 2초 동안 울림
+      singStatus(`👂 화음을 들어 보세요. ${VOICES[stage.voice].label}을 찾아요`);
+      dur = 2.0;
+      chordTone(q.chord, t, dur);
+    } else {
+      singStatus('👂 기준음을 들어 보세요');
+      tone(q.ref, t, dur);
+    }
+    timeline = [{ start: t, end: t + dur, kind: 'ref' }];
+    const wait = (t - ctx.currentTime) + dur + 0.55 + (stage.delay || 0); // 소리 여운이 마이크에 섞이지 않게 조금 쉬고
     if (stage.delay) singTimers.push(setTimeout(() => singStatus(`🤫 ${stage.delay}초 동안 속으로 음을 떠올려 보세요`), (wait - stage.delay) * 1000));
     singTimers.push(setTimeout(startListening, wait * 1000));
   }
 
   function startListening() {
-    singStatus(`🎤 지금 "${NAMES[q.target % 12]}"를 불러 보세요 (아— 하고 길게)`, 'live');
+    singStatus(q.chordSing ? `🎤 지금 ${VOICES[stage.voice].label}을 불러 보세요 (아— 하고 길게)` : `🎤 지금 "${NAMES[q.target % 12]}"를 불러 보세요 (아— 하고 길게)`, 'live');
     q.listenStart = ctx.currentTime;
     q.state = 'listening';
     const per = Math.round(STABLE_SEC * 1000 / FRAME_MS);
@@ -532,8 +552,16 @@
     const when = ` · 첫 음까지 ${q.stable.from.toFixed(1)}초`;
     if (ok) fb.textContent = `정답이에요! ${NAMES[q.target % 12]}에서 ${sign}${c}센트${when}`;
     else if (Math.abs(c) < 100) fb.textContent = `아깝네요. ${sign}${c}센트, 조금 ${c > 0 ? '높아요' : '낮아요'} (±${stage.tol}센트 안이면 정답)${when}`;
-    else fb.textContent = `"${NAMES[sungMidi % 12]}"에 가까웠어요. 목표보다 ${sign}${c}센트 ${c > 0 ? '높아요' : '낮아요'}${when}`;
-    singStatus('🎹 "정답 음 듣기"로 기준음과 목표 음을 이어서 들어 볼 수 있어요.');
+    else {
+      // 화음의 다른 음을 불렀으면 알려 줌
+      const other = q.chordSing && q.chord.find((m) => m !== q.target && Math.abs(fold(centsOf(f, midiFreq(m)))) <= 50);
+      const voiceOf = (m) => ['가장 낮은 음', '가운데 음', '가장 높은 음'][q.chord.indexOf(m)];
+      fb.textContent = other
+        ? `화음의 ${voiceOf(other)}(${NAMES[other % 12]})을 불렀어요. 찾을 음은 ${NAMES[q.target % 12]}${when}`
+        : `"${NAMES[sungMidi % 12]}"에 가까웠어요. 목표보다 ${sign}${c}센트 ${c > 0 ? '높아요' : '낮아요'}${when}`;
+    }
+    if (q.chordSing) renderSingTarget(); // 채점 후 화음과 정답 음 공개
+    singStatus(q.chordSing ? '🎹 "정답 음 듣기"로 화음과 찾을 음을 이어서 들어 볼 수 있어요.' : '🎹 "정답 음 듣기"로 기준음과 목표 음을 이어서 들어 볼 수 있어요.');
     $('#btn-sing').hidden = true;
     $('#btn-replay').hidden = false;
     $('#btn-next').hidden = false;
@@ -545,7 +573,7 @@
   function playSingAnswer() {
     ensureAudio();
     const t = ctx.currentTime + 0.05;
-    tone(q.ref, t, 0.9);
+    if (q.chordSing) chordTone(q.chord, t, 0.9); else tone(q.ref, t, 0.9);
     tone(q.target, t + 1.1, 1.2);
     timeline = [{ start: t, end: t + 0.9, kind: 'ref' }];
     setBusy(2.4);
@@ -579,7 +607,7 @@
       p.drawingContext.setLineDash([]);
       p.noStroke();
       p.fill(k === 0 ? colors.ink : colors.muted);
-      p.text(NAMES[(((q.target + k) % 12) + 12) % 12], left - 6, y);
+      p.text(q.chordSing && !graded ? (k === 0 ? '목표' : '') : NAMES[(((q.target + k) % 12) + 12) % 12], left - 6, y);
     }
     p.textAlign(p.CENTER, p.CENTER);
     p.fill(colors.muted);
@@ -1170,7 +1198,7 @@
     $('#tap-pad').hidden = !isRhythm;
     $('#sing-box').hidden = !isSing;
     $('#btn-ref').hidden = s.ref === false;
-    $('#btn-ref').textContent = isSing ? '🔔 기준음 듣기' : '🔔 기준음 도';
+    $('#btn-ref').textContent = s.chordSing ? '🎶 화음 듣기' : isSing ? '🔔 기준음 듣기' : '🔔 기준음 도';
     updateReplayButton();
     buildKeyboard();
     show('#screen-game');
@@ -1178,6 +1206,7 @@
   }
 
   function questionHint() {
+    if (q.chordSing) return '🎧 이어폰을 권해요. 화음이 끝나면 찾은 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요.';
     if (q.kind === 'sing') return '🎧 이어폰을 권해요. 기준음이 끝나면 목표 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요(남성 파트는 한 옥타브 낮게).';
     if (q.kind === 'rhythm') return `♩=${stage.bpm} · 예비박 4번 → 리듬 듣기 → 이어지는 메트로놈에 맞춰 버튼으로 따라 치기`;
     if (q.kind === 'quality') return '화음이 어떤 소리로 들리나요? 확인 전까지는 다른 보기를 눌러 바꿀 수 있어요.';
@@ -1575,7 +1604,7 @@
   // ---------- 새 버전 자동 반영 ----------
   // 주소는 항상 https://love540.github.io/choir-pitch-game 하나. 배포할 때 APP_VERSION, version.json,
   // html의 ?v= 숫자를 함께 올리면, 열려 있던 페이지도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀐다.
-  const APP_VERSION = 12;
+  const APP_VERSION = 13;
   async function checkForUpdate() {
     if (location.protocol === 'file:') return; // 로컬 버전은 확인하지 않음
     try {
