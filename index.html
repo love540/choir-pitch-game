@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>기준음 청음 게임</title>
+  <meta name="description" content="합창단 청음 연습: 기준음 도를 듣고 문제 음을 맞혀 보세요.">
+  <link rel="stylesheet" href="style.css">
+  <!-- 온라인 버전: p5를 CDN에서 불러옵니다. 인터넷 없이 쓰려면 local.html -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" defer></script>
+  <script src="game.js" defer></script>
+</head>
+<body>
+<main>
+  <!-- 단계 선택 -->
+  <section id="screen-menu">
+    <h1>기준음 청음 게임</h1>
+    <p class="muted">기준음 <b>도</b>를 먼저 들려준 뒤 문제 음을 들려줍니다. 어떤 음인지 건반에서 골라 보세요. 한 판에 10문제이고, 8문제 이상 맞히면 다음 단계가 열립니다.</p>
+    <p class="hint">🎧 이어폰을 끼면 더 잘 들려요. 아이폰에서 소리가 안 나면 무음 모드를 끄고 볼륨을 올려 주세요.</p>
+    <ul class="stages" id="stage-list"></ul>
+    <p class="center"><button class="link small" id="btn-reset">진행 기록 지우기</button></p>
+  </section>
+
+  <!-- 문제 풀기 -->
+  <section id="screen-game" hidden>
+    <div class="topbar">
+      <button class="link" id="btn-menu">← 단계 목록</button>
+      <span class="progress" id="progress"></span>
+    </div>
+    <h2 id="stage-title"></h2>
+
+    <div id="viz" aria-hidden="true"></div>
+
+    <div class="row">
+      <button id="btn-ref">🔔 기준음 도</button>
+      <button id="btn-replay">🔁 다시 듣기</button>
+    </div>
+
+    <div class="slots" id="slots" aria-live="polite"></div>
+    <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
+
+    <div class="keyboard" id="keyboard"></div>
+    <p class="muted small center" id="key-hint"></p>
+
+    <div class="row">
+      <button id="btn-undo">⌫ 지우기</button>
+      <button class="primary" id="btn-check">확인</button>
+      <button class="primary" id="btn-next" hidden>다음 문제</button>
+    </div>
+  </section>
+
+  <!-- 결과 -->
+  <section id="screen-summary" hidden>
+    <div class="card center">
+      <h2 id="sum-stage"></h2>
+      <div class="big-score" id="sum-score"></div>
+      <p id="sum-msg"></p>
+      <div class="row">
+        <button id="sum-retry">다시 하기</button>
+        <button class="primary" id="sum-next">다음 단계</button>
+      </div>
+      <p><button class="link" id="sum-menu">단계 목록으로</button></p>
+    </div>
+  </section>
+</main>
+</body>
+</html>
