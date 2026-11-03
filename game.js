@@ -662,9 +662,10 @@
 
   function padState(state) {
     const pad = $('#tap-pad');
-    pad.classList.remove('listen', 'play', 'done');
+    pad.classList.remove('idle', 'listen', 'play', 'done');
     pad.classList.add(state);
     pad.textContent = {
+      idle: '▶ 위의 "시작하기"를 누르면 예비박 4번 뒤에 리듬이 나와요',
       listen: '👂 듣는 중… 다 들은 뒤에 따라 치세요',
       play: '👏 지금 따라 치세요!',
       done: '채점 끝! 아래 "다음 문제"를 눌러 주세요',
@@ -942,6 +943,16 @@
   // 단계 목록을 떠날 때 보던 위치를 기억했다가, 돌아오면 그 자리로
   let currentScreen = '#screen-menu';
   let menuScrollY = 0;
+  // 단계에 처음 들어오면 바로 소리 내지 않고 '시작하기'를 기다림. 누르면 '다시 듣기'(박자는 '처음부터 다시')로 바뀜
+  let roundStarted = false;
+  function updateReplayButton() {
+    const b = $('#btn-replay');
+    b.classList.toggle('primary', !roundStarted);
+    b.textContent = !roundStarted ? '▶ 시작하기'
+      : stage.kind === 'rhythm' ? '🔁 처음부터 다시'
+      : stage.kind === 'sing' ? '🎹 정답 음 듣기' : '🔁 다시 듣기';
+  }
+
   function show(id) {
     if (currentScreen === '#screen-menu' && id !== '#screen-menu') menuScrollY = window.scrollY;
     for (const s of ['#screen-menu', '#screen-game', '#screen-summary', '#screen-calib']) $(s).hidden = s !== id;
@@ -959,11 +970,14 @@
       // 게임 제목+설명은 스크롤할 때 화면 위에 붙어 있다가 다음 게임 제목이 밀어 올림 (sticky header)
       sec.innerHTML = `<div class="game-head"><h2>${GAME_ICONS[g.id]} ${g.title}</h2><p class="muted small">${g.desc}</p></div>`;
       if (g.id === 'rhythm') {
+        // 단계가 아니라 시작 전 '사전 설정'이라서 모양을 다르게
         const cb = document.createElement('button');
-        cb.className = 'stage-btn calib-btn';
         const lat = progress.latency;
-        cb.innerHTML = '<span class="stage-num">⏱</span><span class="stage-text"><span class="stage-title">이어폰 지연 맞추기</span>' +
-          `<span class="stage-meta">${lat == null ? '처음 한 번, 이어폰을 바꾸면 다시 해 주세요' : `지금 보정값 ${(lat).toFixed(2)}초 · 이어폰을 바꾸면 다시`}</span></span>`;
+        cb.className = 'setup-row calib-btn' + (lat == null ? ' needed' : '');
+        cb.innerHTML = '<span class="setup-tag">⚙️ 사전 설정</span>' +
+          '<span class="setup-main"><span class="setup-title">이어폰 지연 맞추기</span>' +
+          `<span class="setup-meta">${lat == null ? '시작 전에 한 번 해 주세요' : '이어폰을 바꾸면 다시 해 주세요'}</span></span>` +
+          `<span class="setup-val">${lat == null ? '안 함' : `${Math.round(lat * 1000)}ms`} ›</span>`;
         cb.addEventListener('click', openCalib);
         sec.appendChild(cb);
       }
@@ -996,6 +1010,7 @@
     stage = s;
     qIndex = 0;
     score = 0;
+    roundStarted = s.kind === 'sing'; // 첫 음 잡기는 자체 시작 버튼이 있음
     lastKey = '';
     $('#game-name').textContent = game.title;
     $('#stage-title').textContent = `${s.id}단계 · ${s.title}`;
@@ -1007,7 +1022,7 @@
     $('#sing-box').hidden = !isSing;
     $('#btn-ref').hidden = s.ref === false;
     $('#btn-ref').textContent = isSing ? '🔔 기준음 듣기' : '🔔 기준음 도';
-    $('#btn-replay').textContent = isRhythm ? '🔁 처음부터 다시' : isSing ? '🎹 정답 음 듣기' : '🔁 다시 듣기';
+    updateReplayButton();
     buildKeyboard();
     show('#screen-game');
     nextQuestion();
@@ -1047,7 +1062,8 @@
       singStatus(mic ? '' : '시작을 누르면 마이크를 켜고 기준음을 들려줘요. 처음 한 번 마이크 "허용"을 눌러 주세요.');
     }
     renderAnswer();
-    playQuestion();
+    if (roundStarted) playQuestion();
+    else if (q.kind === 'rhythm') padState('idle');
   }
 
   function renderAnswer() {
@@ -1435,7 +1451,10 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
     renderMenu();
     $('#btn-ref').addEventListener('click', playRef);
-    $('#btn-replay').addEventListener('click', () => (q.kind === 'sing' ? playSingAnswer() : playQuestion()));
+    $('#btn-replay').addEventListener('click', () => {
+      if (!roundStarted) { roundStarted = true; updateReplayButton(); }
+      if (q.kind === 'sing') playSingAnswer(); else playQuestion();
+    });
     $('#btn-undo').addEventListener('click', undo);
     $('#btn-check').addEventListener('click', check);
     $('#btn-next').addEventListener('click', () => { ensureAudio(); nextQuestion(); });
