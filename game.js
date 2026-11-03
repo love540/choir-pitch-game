@@ -32,9 +32,9 @@
   function loadProgress() {
     try {
       const d = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
-      return { unlocked: d.unlocked || 1, best: d.best || {} };
+      return { unlocked: d.unlocked || 1, best: d.best || {}, sfx: d.sfx !== false };
     } catch (e) {
-      return { unlocked: 1, best: {} };
+      return { unlocked: 1, best: {}, sfx: true };
     }
   }
   function saveProgress() {
@@ -111,6 +111,46 @@
     tone(REF, t, 1.0);
     timeline = [{ midi: REF, start: t, end: t + 1.0, kind: 'ref' }];
     setBusy(1.1);
+  }
+
+  // 효과음: 문제 음역(도~높은 도)과 겹치지 않게, 짧고 작게
+  function blip(freq, t, dur, type, peak, lpHz) {
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = lpHz;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(lp); lp.connect(g); g.connect(master);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+
+  function sfx(ok) {
+    if (!progress.sfx) return;
+    ensureAudio();
+    const t = ctx.currentTime + 0.02;
+    if (ok) {
+      // 정답: 맑게 올라가는 두 음 (높은 솔 → 높은 도, 두 옥타브 위 음역)
+      blip(1568, t, 0.18, 'sine', 0.22, 8000);
+      blip(1568 * 2, t, 0.12, 'sine', 0.04, 8000);       // 반짝이는 배음
+      blip(2093, t + 0.09, 0.4, 'sine', 0.25, 8000);
+      blip(2093 * 2, t + 0.09, 0.25, 'sine', 0.05, 8000);
+    } else {
+      // 오답: 낮고 둔하게 내려가는 두 음
+      blip(196, t, 0.16, 'square', 0.12, 700);
+      blip(165, t + 0.15, 0.3, 'square', 0.12, 600);
+    }
+  }
+
+  function renderSfxButton() {
+    const b = $('#btn-sfx');
+    b.textContent = progress.sfx ? '🔔 효과음 켬' : '🔕 효과음 끔';
+    b.setAttribute('aria-pressed', String(progress.sfx));
   }
 
   function playKey(m) {
@@ -265,6 +305,7 @@
     graded = true;
     const ok = q.notes.every((m, i) => answer[i] === m);
     if (ok) score++;
+    sfx(ok);
     $('#progress').textContent = `${qIndex} / ${ROUND_LEN} · 맞힘 ${score}`;
     const fb = $('#feedback');
     fb.className = 'feedback ' + (ok ? 'good' : 'bad');
@@ -507,12 +548,19 @@
     $('#btn-check').addEventListener('click', check);
     $('#btn-next').addEventListener('click', () => { ensureAudio(); nextQuestion(); });
     $('#btn-menu').addEventListener('click', () => { renderMenu(); show('#screen-menu'); });
+    renderSfxButton();
+    $('#btn-sfx').addEventListener('click', () => {
+      progress.sfx = !progress.sfx;
+      saveProgress();
+      renderSfxButton();
+      if (progress.sfx) sfx(true); // 켜면 미리 들려줌
+    });
     $('#sum-retry').addEventListener('click', () => startStage(stage));
     $('#sum-next').addEventListener('click', () => startStage(STAGES[stage.id]));
     $('#sum-menu').addEventListener('click', () => show('#screen-menu'));
     $('#btn-reset').addEventListener('click', () => {
       if (!confirm('단계 진행 기록을 모두 지울까요?')) return;
-      progress = { unlocked: 1, best: {} };
+      progress = { unlocked: 1, best: {}, sfx: progress.sfx };
       saveProgress();
       renderMenu();
     });
