@@ -697,10 +697,16 @@
     const pad = $('#tap-pad');
     pad.classList.remove('idle', 'count', 'listen', 'play', 'done');
     pad.classList.add(state);
-    const phase = { idle: '▶ 위의 "시작하기"를 누르세요', count: '예비박', listen: '👂 듣기', play: '👏 지금 따라 치세요!', done: '채점 끝' }[state];
-    const sub = opts.sub || { idle: '예비박 4번 → 리듬 듣기 → 같은 길이만큼 따라 치기', count: '곧 리듬이 나와요', listen: '아직 치지 말고 잘 들어 보세요', play: '메트로놈에 맞춰 이 버튼을 누르세요', done: '아래 "다음 문제"를 눌러 주세요' }[state];
-    const beats = [1, 2, 3, 4].map((n, i) => `<i class="${i === opts.beat ? 'on' : ''}">${n}</i>`).join('');
-    pad.innerHTML = `<span class="pad-phase">${phase}</span><span class="pad-beats">${beats}</span><span class="pad-sub">${sub}</span>`;
+    const phase = { idle: '▶ 위의 "시작하기"를 누르세요', count: '예비박', listen: '👂 듣기 · 아직 누르지 마세요', play: '👆 지금 이 버튼을 누르세요!', done: '채점 끝' }[state];
+    const sub = opts.sub || { idle: '예비박 4번 → 리듬 듣기 → 이 버튼으로 같은 리듬 치기', count: '곧 리듬이 나와요', listen: '리듬을 기억하세요. 끝나면 이 버튼을 누를 차례예요', play: '들은 리듬을 메트로놈에 맞춰 손가락으로 톡톡', done: '"다시 해 보기"로 연습하거나 "다음 문제"로 넘어가요' }[state];
+    // 안의 요소를 새로 만들지 않고 글자와 표시만 바꾼다.
+    // (박에 맞춰 누르는 순간 요소를 다시 만들면 아이폰 사파리에서 그 누름이 버튼에 전달되지 않음)
+    if (!pad.querySelector('.pad-beats')) {
+      pad.innerHTML = '<span class="pad-phase"></span><span class="pad-beats"><i>1</i><i>2</i><i>3</i><i>4</i></span><span class="pad-sub"></span>';
+    }
+    pad.querySelector('.pad-phase').textContent = phase;
+    pad.querySelector('.pad-sub').textContent = sub;
+    pad.querySelectorAll('.pad-beats i').forEach((el, i) => el.classList.toggle('on', i === opts.beat));
   }
 
   let padRaf = 0, padKey = '';
@@ -718,15 +724,16 @@
         const b = Math.floor((now - T.listen) / T.spb);
         beat = b % 4;
         if (two) sub = `${Math.floor(b / 4) + 1}마디째 듣는 중`;
-      } else if (now < T.end && !T.replayOnly) {
+      } else if (now < T.end) {
         st = 'play';
         const b = Math.floor((now - T.play) / T.spb);
         beat = b % 4;
-        if (two) sub = `${Math.floor(b / 4) + 1}마디째 · 메트로놈에 맞춰 누르세요`;
+        const n = q.taps.filter((t) => t >= T.play - 0.2).length;
+        sub = (two ? `${Math.floor(b / 4) + 1}마디째 · ` : '') + (n ? `👍 ${n}번 눌렀어요` : '들은 리듬을 메트로놈에 맞춰 손가락으로 톡톡');
       } else {
-        if (T.replayOnly) padState('done');
         return; // 따라 치기가 끝나면 채점이 상태를 바꿈
       }
+      if (st === 'listen' && q.taps.some((t) => t >= T.listen && t < T.play)) sub = '아직이에요! 듣기가 끝나면 눌러요';
       const key = st + beat + (sub || '');
       if (key !== padKey) { padKey = key; padState(st, { beat, sub }); }
       padRaf = requestAnimationFrame(step);
@@ -740,7 +747,8 @@
     const spb = 60 / q.bpm, s16 = spb / 4, len = q.total16 * s16, beats = q.total16 / 4;
     const t0 = ctx.currentTime + 0.15;
     const listen = t0 + 4 * spb, play = listen + len, end = play + len;
-    const replayOnly = graded; // 채점 후에는 듣기만 다시
+    if (graded) { q.practice = true; graded = false; $('#feedback').textContent = ''; updateReplayButton(); } // 채점 후 다시: 연습(점수는 첫 시도만)
+    const replayOnly = false;
     q.time = { t0, listen, play, end, spb, s16, len, replayOnly };
     for (let i = 0; i < 4; i++) click(t0 + i * spb, i === 0, 0.35);         // 예비박
     for (let b = 0; b < beats; b++) click(listen + b * spb, b % 4 === 0, 0.1); // 듣기: 메트로놈 작게
@@ -796,17 +804,19 @@
     q.result = { notes, extras, win, lat };
 
     graded = true;
-    if (ok) score++;
+    if (ok && !q.practice) score++;
     sfx(ok);
+    updateReplayButton();
     $('#progress').textContent = `${qIndex} / ${ROUND_LEN} · 맞힘 ${score}`;
     const meanD = hit.length ? hit.reduce((a, n) => a + n.d, 0) / hit.length : 0;
     const meanAbs = hit.length ? hit.reduce((a, n) => a + Math.abs(n.d), 0) / hit.length : 0;
     const tend = Math.abs(meanD) < 0.03 ? '' : meanD < 0 ? ' · 조금 서두르는 편이에요' : ' · 조금 늦는 편이에요';
     const fb = $('#feedback');
     fb.className = 'feedback ' + (ok ? 'good' : 'bad');
-    if (!q.taps.length) fb.textContent = '버튼을 누르지 않았어요. 메트로놈이 다시 시작될 때 따라 쳐 보세요.';
-    else if (ok) fb.textContent = `정답이에요! 평균 ${Math.round(meanAbs * 1000)}ms 차이${tend}`;
-    else fb.textContent = [missed ? `놓친 박 ${missed}개` : '', extras.length ? `남는 탭 ${extras.length}개` : ''].filter(Boolean).join(', ') + tend;
+    const pre = q.practice ? '연습 · ' : '';
+    if (!q.taps.length) fb.textContent = `${pre}누른 기록이 없어요. "따라 치기" 차례에 아래 큰 버튼을 눌러 주세요.`;
+    else if (ok) fb.textContent = `${pre}정답이에요! 평균 ${Math.round(meanAbs * 1000)}ms 차이${tend}`;
+    else fb.textContent = pre + [missed ? `놓친 박 ${missed}개` : '', extras.length ? `남는 탭 ${extras.length}개` : ''].filter(Boolean).join(', ') + tend;
     padState('done');
     $('#btn-next').hidden = false;
     $('#btn-next').textContent = qIndex >= ROUND_LEN ? '결과 보기' : '다음 문제';
@@ -1126,7 +1136,7 @@
     const b = $('#btn-replay');
     b.classList.toggle('primary', !roundStarted);
     b.textContent = !roundStarted ? '▶ 시작하기'
-      : stage.kind === 'rhythm' ? '🔁 처음부터 다시'
+      : stage.kind === 'rhythm' ? (graded ? '🔁 다시 해 보기 (연습)' : '🔁 처음부터 다시')
       : stage.kind === 'sing' ? '🎹 정답 음 듣기' : '🔁 다시 듣기';
   }
 
@@ -1208,7 +1218,7 @@
   function questionHint() {
     if (q.chordSing) return '🎧 이어폰을 권해요. 화음이 끝나면 찾은 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요.';
     if (q.kind === 'sing') return '🎧 이어폰을 권해요. 기준음이 끝나면 목표 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요(남성 파트는 한 옥타브 낮게).';
-    if (q.kind === 'rhythm') return `♩=${stage.bpm} · 예비박 4번 → 리듬 듣기 → 이어지는 메트로놈에 맞춰 버튼으로 따라 치기`;
+    if (q.kind === 'rhythm') return `♩=${stage.bpm} · 예비박 4번 → 리듬 듣기 → "👆 지금 이 버튼을 누르세요!"가 나오면 아래 큰 버튼을 리듬대로 누르기` + (progress.latency == null ? ' · 블루투스 이어폰이면 단계 목록의 ⚙️ 이어폰 지연 맞추기를 먼저 해 주세요' : '');
     if (q.kind === 'quality') return '화음이 어떤 소리로 들리나요? 확인 전까지는 다른 보기를 눌러 바꿀 수 있어요.';
     if (q.kind === 'voice') return `화음 속 ${VOICES[stage.voice].label}을 건반에서 고르세요. 확인 전까지는 바꿀 수 있어요.`;
     return stage.count > 1
@@ -1231,6 +1241,7 @@
     $('#btn-undo').hidden = auto || q.kind === 'quality';
     $('#btn-replay').hidden = q.kind === 'sing';
     $('#key-hint').textContent = questionHint();
+    if (roundStarted) updateReplayButton();
     if (q.kind === 'sing') {
       renderSingTarget();
       const sb = $('#btn-sing');
@@ -1604,7 +1615,7 @@
   // ---------- 새 버전 자동 반영 ----------
   // 주소는 항상 https://love540.github.io/choir-pitch-game 하나. 배포할 때 APP_VERSION, version.json,
   // html의 ?v= 숫자를 함께 올리면, 열려 있던 페이지도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀐다.
-  const APP_VERSION = 13;
+  const APP_VERSION = 14;
   async function checkForUpdate() {
     if (location.protocol === 'file:') return; // 로컬 버전은 확인하지 않음
     try {
