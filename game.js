@@ -1,6 +1,7 @@
 /* 합창단 청음 연습
  * 1) 기준음 청음: 기준음 도(C4)를 들려준 뒤 문제 음을 들려주고, 건반으로 맞힌다.
  * 4) 화음 청음: 3화음의 장·단(감·증)을 구별하고, 화음 속 베이스·소프라노·가운데 음을 찾는다.
+ * 3) 박자 따라 하기: 들려준 리듬을 메트로놈에 맞춰 버튼으로 따라 친다. 이어폰 지연을 재서 보정한다.
  * - 소리는 Web Audio로 직접 합성한다(음원 파일 없음).
  * - 음 계단 그림은 p5(instance mode)로 그린다.
  */
@@ -56,7 +57,33 @@
       ],
     },
   ];
+  // 리듬 조각: len=박 수, on=16분음표 단위 위치
+  const CELLS = {
+    q: { len: 1, on: [0] },            // ♩
+    h: { len: 2, on: [0] },            // 𝅗𝅥
+    r: { len: 1, on: [] },             // 4분쉼표
+    ee: { len: 1, on: [0, 2] },        // ♪♪
+    re: { len: 1, on: [2] },           // 8분쉼표 + ♪
+    dq: { len: 2, on: [0, 6] },        // 점4분 + 8분
+    s4: { len: 1, on: [0, 1, 2, 3] },  // 16분 넷
+    s3a: { len: 1, on: [0, 2, 3] },    // 8분 + 16분 둘
+    s3b: { len: 1, on: [0, 1, 2] },    // 16분 둘 + 8분
+    syn: { len: 2, on: [0, 2, 6] },    // ♪♩♪ 당김음
+  };
+  GAMES.push({
+    id: 'rhythm', title: '박자 따라 하기', desc: '예비박 뒤에 들려주는 리듬을 듣고, 이어지는 메트로놈에 맞춰 버튼으로 똑같이 쳐요.',
+    stages: [
+      { id: 1, kind: 'rhythm', title: '4분음표', desc: '♩와 2분음표 · 한 마디', cells: ['q', 'h'], bpm: 80, bars: 1 },
+      { id: 2, kind: 'rhythm', title: '8분음표', desc: '♪♪가 들어간 한 마디', cells: ['q', 'h', 'ee'], focus: ['ee'], bpm: 80, bars: 1 },
+      { id: 3, kind: 'rhythm', title: '쉼표', desc: '4분쉼표, 8분쉼표가 들어간 한 마디', cells: ['q', 'ee', 'r', 're'], focus: ['r', 're'], bpm: 80, bars: 1 },
+      { id: 4, kind: 'rhythm', title: '점음표', desc: '점4분음표 + 8분음표', cells: ['q', 'ee', 'dq', 'r'], focus: ['dq'], bpm: 76, bars: 1 },
+      { id: 5, kind: 'rhythm', title: '16분음표', desc: '빠르게 쪼개지는 박', cells: ['q', 'ee', 's4', 's3a', 's3b'], focus: ['s4', 's3a', 's3b'], bpm: 70, bars: 1 },
+      { id: 6, kind: 'rhythm', title: '당김음 · 두 마디', desc: '박 사이에서 시작하는 리듬, 두 마디', cells: ['q', 'ee', 'syn', 're', 'dq'], focus: ['syn'], bpm: 80, bars: 2 },
+    ],
+  });
   GAMES[1].stages.forEach((s) => { s.count = 1; s.black = true; });
+  GAMES[2].stages.forEach((s) => { s.count = 0; s.black = false; s.ref = false; });
+  const GAME_ICONS = { pitch: '🎯', chord: '🎶', rhythm: '🥁' };
   const ROUND_LEN = 10;
   const PASS = 8;
 
@@ -72,9 +99,9 @@
       } else if (d.unlocked) {
         games.pitch = { unlocked: d.unlocked, best: d.best || {} }; // 예전 기록(기준음 청음만 있던 때) 옮기기
       }
-      return { games, sfx: d.sfx !== false };
+      return { games, sfx: d.sfx !== false, latency: typeof d.latency === 'number' ? d.latency : null };
     } catch (e) {
-      return { games: freshGames(), sfx: true };
+      return { games: freshGames(), sfx: true, latency: null };
     }
   }
   function saveProgress() {
@@ -133,6 +160,7 @@
   let busyTimer = null;
 
   function playQuestion() {
+    if (q.kind === 'rhythm') return playRhythm();
     ensureAudio();
     let t = ctx.currentTime + 0.08;
     timeline = [];
@@ -273,13 +301,368 @@
     return { kind: 'voice', chord, quality: type, target, notes: [target] };
   }
 
-  const makeQuestion = () => (stage.kind === 'seq' ? makeSeqQuestion() : makeChordQuestion());
+  // 리듬: 마디 안에 리듬 조각을 채운다. 새로 배우는 조각(focus)이 꼭 하나는 들어가게.
+  function makeRhythmQuestion() {
+    const total = 4 * stage.bars;
+    let onsets, key;
+    for (;;) {
+      onsets = [];
+      const used = [];
+      let beat = 0;
+      while (beat < total) {
+        const left = 4 - (beat % 4); // 마디선을 넘지 않게
+        const fits = stage.cells.filter((c) => CELLS[c].len <= left);
+        const c = pick(fits);
+        if (beat === 0 && CELLS[c].on[0] !== 0 && stage.id <= 2) continue;
+        CELLS[c].on.forEach((o) => onsets.push(beat * 4 + o));
+        used.push(c);
+        beat += CELLS[c].len;
+      }
+      if (onsets.length < (stage.id === 1 ? 2 : 3)) continue;
+      if (stage.focus && !used.some((c) => stage.focus.includes(c))) continue;
+      if (used.every((c) => c === 'r')) continue;
+      key = onsets.join(',');
+      if (key !== lastKey) break;
+    }
+    lastKey = key;
+    return { kind: 'rhythm', onsets, total16: total * 4, bpm: stage.bpm, taps: [], result: null };
+  }
+
+  const makeQuestion = () => (stage.kind === 'seq' ? makeSeqQuestion()
+    : stage.kind === 'rhythm' ? makeRhythmQuestion() : makeChordQuestion());
+
+  // ---------- 박자 따라 하기 ----------
+  // 흐름: 예비박 4번 → 리듬 듣기(메트로놈 작게) → 같은 길이만큼 메트로놈에 맞춰 따라 치기 → 자동 채점
+  let rhythmTimers = [];
+  let rhythmNodes = [];
+  let calib = null;
+
+  function stopRhythm() {
+    rhythmTimers.forEach(clearTimeout);
+    rhythmTimers = [];
+    rhythmNodes.forEach((n) => { try { n.stop(); } catch (e) { /* 이미 끝남 */ } });
+    rhythmNodes = [];
+  }
+  const later = (sec, fn) => rhythmTimers.push(setTimeout(fn, Math.max(0, sec * 1000)));
+
+  // 메트로놈 딸깍 (마디 첫 박은 조금 높게)
+  function click(t, accent, vol) {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = accent ? 1760 : 1320;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.06);
+    rhythmNodes.push(o);
+  }
+
+  // 리듬 소리: 나무토막처럼 짧고 또렷하게
+  function wood(t) {
+    [[700, 0.4], [1400, 0.12]].forEach(([f, v]) => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 0.85, t + 0.08);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(v, t + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + 0.14);
+      rhythmNodes.push(o);
+    });
+  }
+
+  // 소리가 귀에 닿기까지 걸리는 시간(초). 지연 맞추기를 안 했으면 브라우저가 알려 주는 값.
+  function latency() {
+    if (progress.latency != null) return progress.latency;
+    return ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0;
+  }
+
+  function padState(state) {
+    const pad = $('#tap-pad');
+    pad.classList.remove('listen', 'play', 'done');
+    pad.classList.add(state);
+    pad.textContent = {
+      listen: '👂 듣는 중… 다 들은 뒤에 따라 치세요',
+      play: '👏 지금 따라 치세요!',
+      done: '채점 끝! 아래 "다음 문제"를 눌러 주세요',
+    }[state];
+  }
+
+  function playRhythm() {
+    ensureAudio();
+    stopRhythm();
+    const spb = 60 / q.bpm, s16 = spb / 4, len = q.total16 * s16, beats = q.total16 / 4;
+    const t0 = ctx.currentTime + 0.15;
+    const listen = t0 + 4 * spb, play = listen + len, end = play + len;
+    const replayOnly = graded; // 채점 후에는 듣기만 다시
+    q.time = { t0, listen, play, end, spb, s16, len, replayOnly };
+    for (let i = 0; i < 4; i++) click(t0 + i * spb, i === 0, 0.35);         // 예비박
+    for (let b = 0; b < beats; b++) click(listen + b * spb, b % 4 === 0, 0.1); // 듣기: 메트로놈 작게
+    q.onsets.forEach((o) => wood(listen + o * s16));
+    const now = ctx.currentTime;
+    if (replayOnly) {
+      setBusy(play - now);
+      return;
+    }
+    q.taps = [];
+    q.result = null;
+    for (let b = 0; b < beats; b++) click(play + b * spb, b % 4 === 0, 0.3);  // 따라 치기: 메트로놈만
+    padState('listen');
+    setBusy(end - now + 0.3);
+    later(play - now - 0.03, () => padState('play'));
+    later(end - now + 0.4 + latency(), gradeRhythm);
+  }
+
+  function onTap() {
+    if (q.kind !== 'rhythm' || graded || !q.time) return;
+    q.taps.push(ctx.currentTime);
+    flashPad($('#tap-pad'));
+  }
+
+  function flashPad(el) {
+    el.classList.add('hit');
+    setTimeout(() => el.classList.remove('hit'), 90);
+  }
+
+  function gradeRhythm() {
+    if (graded) return;
+    const { play, s16, len } = q.time;
+    const lat = latency();
+    const exp = q.onsets.map((o) => play + o * s16);
+    let minGap = 4;
+    for (let i = 1; i < q.onsets.length; i++) minGap = Math.min(minGap, q.onsets[i] - q.onsets[i - 1]);
+    const win = Math.min(0.15, minGap * s16 * 0.5); // 이웃한 음과 헷갈리지 않는 범위에서 최대 0.15초
+    const taps = q.taps.map((t) => t - lat).filter((t) => t >= play - win && t <= play + len + win);
+    const used = new Set();
+    const notes = exp.map((e) => {
+      let best = -1, bestD = Infinity;
+      taps.forEach((t, i) => {
+        const d = Math.abs(t - e);
+        if (!used.has(i) && d <= win && d < bestD) { best = i; bestD = d; }
+      });
+      if (best < 0) return { e, tap: null, d: null };
+      used.add(best);
+      return { e, tap: taps[best], d: taps[best] - e };
+    });
+    const extras = taps.filter((t, i) => !used.has(i));
+    const hit = notes.filter((n) => n.tap != null);
+    const missed = notes.length - hit.length;
+    const ok = missed === 0 && extras.length === 0;
+    q.result = { notes, extras, win, lat };
+
+    graded = true;
+    if (ok) score++;
+    sfx(ok);
+    $('#progress').textContent = `${qIndex} / ${ROUND_LEN} · 맞힘 ${score}`;
+    const meanD = hit.length ? hit.reduce((a, n) => a + n.d, 0) / hit.length : 0;
+    const meanAbs = hit.length ? hit.reduce((a, n) => a + Math.abs(n.d), 0) / hit.length : 0;
+    const tend = Math.abs(meanD) < 0.03 ? '' : meanD < 0 ? ' · 조금 서두르는 편이에요' : ' · 조금 늦는 편이에요';
+    const fb = $('#feedback');
+    fb.className = 'feedback ' + (ok ? 'good' : 'bad');
+    if (!q.taps.length) fb.textContent = '버튼을 누르지 않았어요. 메트로놈이 다시 시작될 때 따라 쳐 보세요.';
+    else if (ok) fb.textContent = `정답이에요! 평균 ${Math.round(meanAbs * 1000)}ms 차이${tend}`;
+    else fb.textContent = [missed ? `놓친 박 ${missed}개` : '', extras.length ? `남는 탭 ${extras.length}개` : ''].filter(Boolean).join(', ') + tend;
+    padState('done');
+    $('#btn-next').hidden = false;
+    $('#btn-next').textContent = qIndex >= ROUND_LEN ? '결과 보기' : '다음 문제';
+    $('#key-hint').textContent = '위 그림에서 초록 동그라미는 맞게 친 박, 빨강은 놓치거나 남은 탭이에요. "처음부터 다시"로 리듬을 다시 들을 수 있어요.';
+    $('#btn-next').focus();
+  }
+
+  // 박자 그림: 위 줄은 들려준 리듬, 아래 줄은 내가 친 탭
+  function drawRhythm(p, colors) {
+    const W = p.width, H = p.height;
+    const left = 52, right = 14;
+    const rows = [{ y: 62, label: '듣기' }, { y: 132, label: '따라' }];
+    const total = q.total16;
+    const xOf = (u) => left + (W - left - right) * (u / total);
+    const now = ctx ? ctx.currentTime : 0;
+    const T = q.time;
+    p.background(colors.bg);
+
+    // 박 번호
+    p.noStroke();
+    p.fill(colors.muted);
+    p.textSize(11);
+    p.textAlign(p.CENTER, p.CENTER);
+    for (let u = 0; u < total; u += 4) p.text(String((u / 4) % 4 + 1), xOf(u), 26);
+
+    rows.forEach((r) => {
+      p.noStroke();
+      p.fill(colors.ink);
+      p.textAlign(p.LEFT, p.CENTER);
+      p.textSize(12);
+      p.text(r.label, 10, r.y);
+      for (let u = 0; u <= total; u += 2) {
+        const strong = u % 16 === 0, beat = u % 4 === 0;
+        p.stroke(colors.line);
+        p.strokeWeight(strong ? 2 : beat ? 1 : 0.5);
+        if (!beat) p.drawingContext.setLineDash([2, 4]);
+        p.line(xOf(u), r.y - 20, xOf(u), r.y + 20);
+        p.drawingContext.setLineDash([]);
+      }
+      p.stroke(colors.line);
+      p.strokeWeight(1);
+      p.line(xOf(0), r.y, xOf(total), r.y);
+    });
+
+    if (!T) return;
+    const uAt = (t, start) => (t - start) / T.s16;
+
+    // 예비박 숫자
+    if (now >= T.t0 && now < T.listen) {
+      const n = Math.floor((now - T.t0) / T.spb) + 1;
+      p.noStroke();
+      p.fill(colors.accent);
+      p.textAlign(p.CENTER, p.CENTER);
+      p.textSize(15);
+      p.text(`예비박 ${n}`, W / 2, H - 16);
+    }
+
+    // 재생 위치
+    const head = (start, y) => {
+      if (now < start || now > start + T.len) return;
+      const x = xOf(uAt(now, start));
+      p.stroke(colors.accent);
+      p.strokeWeight(2);
+      p.line(x, y - 24, x, y + 24);
+    };
+    head(T.listen, rows[0].y);
+    if (!T.replayOnly || !graded) head(T.play, rows[1].y);
+
+    // 위 줄: 채점 전에는 소리 날 때만 잠깐 반짝, 채점 후에는 리듬 전체 표시
+    q.onsets.forEach((o, i) => {
+      const x = xOf(o);
+      const age = now - (T.listen + o * T.s16);
+      if (graded) {
+        const nextU = i + 1 < q.onsets.length ? q.onsets[i + 1] : total;
+        p.noStroke();
+        const c = p.color(colors.accent); c.setAlpha(50);
+        p.fill(c);
+        p.rect(x, rows[0].y - 6, Math.max(0, xOf(Math.min(nextU, o + 4)) - x - 3), 12, 6);
+        p.fill(colors.accent);
+        p.circle(x, rows[0].y, 14);
+      } else if (age >= 0 && age < 0.18) {
+        p.noStroke();
+        p.fill(colors.accent);
+        p.circle(x, rows[0].y, 18 - age * 40);
+      }
+    });
+
+    // 아래 줄: 내 탭
+    const lat = latency();
+    if (!graded) {
+      q.taps.forEach((t) => {
+        const u = uAt(t - lat, T.play);
+        if (u < -1 || u > total + 1) return;
+        p.noStroke();
+        p.fill(colors.accent);
+        p.circle(xOf(u), rows[1].y, 12);
+      });
+      return;
+    }
+    const R = q.result;
+    if (!R) return;
+    R.notes.forEach((n) => {
+      const xe = xOf(uAt(n.e, T.play));
+      p.noFill();
+      p.strokeWeight(2);
+      p.stroke(n.tap != null ? colors.good : colors.bad);
+      p.circle(xe, rows[1].y, 18);
+      if (n.tap != null) {
+        const xt = xOf(uAt(n.tap, T.play));
+        p.noStroke();
+        p.fill(Math.abs(n.d) <= 0.06 ? colors.good : colors.accent);
+        p.circle(xt, rows[1].y, 10);
+      }
+    });
+    R.extras.forEach((t) => {
+      p.noStroke();
+      p.fill(colors.bad);
+      p.circle(xOf(uAt(t, T.play)), rows[1].y, 10);
+    });
+  }
+
+  // ---------- 이어폰 지연 맞추기 ----------
+  function openCalib() {
+    ensureAudio();
+    stopRhythm();
+    calib = null;
+    $('#calib-result').textContent = progress.latency == null ? '' : `지금 보정값: ${Math.round(progress.latency * 1000)}ms`;
+    $('#calib-pad').textContent = '시작을 누르면 딸깍 소리가 12번 나요';
+    $('#calib-pad').className = 'tap-pad';
+    $('#calib-start').disabled = false;
+    show('#screen-calib');
+  }
+
+  function startCalib() {
+    ensureAudio();
+    stopRhythm();
+    const spb = 0.6, n = 12;
+    const t0 = ctx.currentTime + 0.6;
+    calib = { clicks: [], taps: [] };
+    for (let i = 0; i < n; i++) {
+      click(t0 + i * spb, i % 4 === 0, 0.4);
+      calib.clicks.push(t0 + i * spb);
+    }
+    $('#calib-start').disabled = true;
+    $('#calib-result').textContent = '';
+    const pad = $('#calib-pad');
+    pad.className = 'tap-pad play';
+    pad.textContent = '👏 딸깍 소리에 맞춰 누르세요';
+    later(t0 + n * spb - ctx.currentTime + 0.5, finishCalib);
+  }
+
+  function onCalibTap() {
+    if (!calib) return;
+    calib.taps.push(ctx.currentTime);
+    flashPad($('#calib-pad'));
+  }
+
+  function finishCalib() {
+    const offs = [];
+    calib.taps.forEach((t) => {
+      let best = null;
+      calib.clicks.forEach((c, i) => { if (i >= 2 && (best == null || Math.abs(t - c) < Math.abs(best))) best = t - c; }); // 처음 두 번은 박 찾는 중이라 뺌
+      if (best != null && Math.abs(best) < 0.3) offs.push(best);
+    });
+    calib = null;
+    $('#calib-start').disabled = false;
+    $('#calib-pad').className = 'tap-pad';
+    $('#calib-pad').textContent = '다시 하려면 시작을 누르세요';
+    if (offs.length < 5) {
+      $('#calib-result').textContent = '누른 횟수가 부족해요. 딸깍 소리에 맞춰 계속 눌러 주세요. 다시 해 볼까요?';
+      return;
+    }
+    offs.sort((a, b) => a - b);
+    const med = offs[Math.floor(offs.length / 2)];
+    const spread = offs.map((d) => Math.abs(d - med)).sort((a, b) => a - b)[Math.floor(offs.length / 2)];
+    progress.latency = Math.max(-0.05, Math.min(0.5, med));
+    saveProgress();
+    let msg = `지연을 ${Math.round(progress.latency * 1000)}ms로 맞췄어요. 박자 따라 하기에 이 값이 적용돼요.`;
+    if (spread > 0.05) msg += ' 누른 박자가 조금 고르지 않았어요. 한 번 더 하면 더 정확해져요.';
+    $('#calib-result').textContent = msg;
+  }
+
+  function setupRhythm() {
+    const pad = $('#tap-pad');
+    pad.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(); });
+    const cp = $('#calib-pad');
+    cp.addEventListener('pointerdown', (e) => { e.preventDefault(); onCalibTap(); });
+    $('#calib-start').addEventListener('click', startCalib);
+    $('#calib-back').addEventListener('click', () => { stopRhythm(); calib = null; renderMenu(); show('#screen-menu'); });
+  }
 
   // ---------- 화면 ----------
   const $ = (s) => document.querySelector(s);
 
   function show(id) {
-    for (const s of ['#screen-menu', '#screen-game', '#screen-summary']) $(s).hidden = s !== id;
+    for (const s of ['#screen-menu', '#screen-game', '#screen-summary', '#screen-calib']) $(s).hidden = s !== id;
     window.scrollTo(0, 0);
     if (viz) viz.resize();
   }
@@ -290,7 +673,16 @@
     GAMES.forEach((g, gi) => {
       const sec = document.createElement('section');
       sec.className = 'game-block';
-      sec.innerHTML = `<h2>${gi === 0 ? '🎯' : '🎶'} ${g.title}</h2><p class="muted small">${g.desc}</p>`;
+      sec.innerHTML = `<h2>${GAME_ICONS[g.id]} ${g.title}</h2><p class="muted small">${g.desc}</p>`;
+      if (g.id === 'rhythm') {
+        const cb = document.createElement('button');
+        cb.className = 'stage-btn calib-btn';
+        const lat = progress.latency;
+        cb.innerHTML = '<span class="stage-num">⏱</span><span class="stage-text"><span class="stage-title">이어폰 지연 맞추기</span>' +
+          `<span class="stage-meta">${lat == null ? '처음 한 번, 이어폰을 바꾸면 다시 해 주세요' : `지금 보정값 ${(lat).toFixed(2)}초 · 이어폰을 바꾸면 다시`}</span></span>`;
+        cb.addEventListener('click', openCalib);
+        sec.appendChild(cb);
+      }
       const ul = document.createElement('ul');
       ul.className = 'stages';
       const pg = progress.games[g.id];
@@ -323,17 +715,20 @@
     lastKey = '';
     $('#game-name').textContent = game.title;
     $('#stage-title').textContent = `${s.id}단계 · ${s.title}`;
-    const isQuality = s.kind === 'quality';
-    $('#keyboard').hidden = isQuality;
-    $('#slots').hidden = isQuality;
+    const isQuality = s.kind === 'quality', isRhythm = s.kind === 'rhythm';
+    $('#keyboard').hidden = isQuality || isRhythm;
+    $('#slots').hidden = isQuality || isRhythm;
     $('#choices').hidden = !isQuality;
+    $('#tap-pad').hidden = !isRhythm;
     $('#btn-ref').hidden = s.ref === false;
+    $('#btn-replay').textContent = isRhythm ? '🔁 처음부터 다시' : '🔁 다시 듣기';
     buildKeyboard();
     show('#screen-game');
     nextQuestion();
   }
 
   function questionHint() {
+    if (q.kind === 'rhythm') return `♩=${stage.bpm} · 예비박 4번 → 리듬 듣기 → 이어지는 메트로놈에 맞춰 버튼으로 따라 치기`;
     if (q.kind === 'quality') return '화음이 어떤 소리로 들리나요? 확인 전까지는 다른 보기를 눌러 바꿀 수 있어요.';
     if (q.kind === 'voice') return `화음 속 ${VOICES[stage.voice].label}을 건반에서 고르세요. 확인 전까지는 바꿀 수 있어요.`;
     return stage.count > 1
@@ -351,14 +746,15 @@
     $('#feedback').textContent = '';
     $('#feedback').className = 'feedback';
     $('#btn-next').hidden = true;
-    $('#btn-check').hidden = false;
-    $('#btn-undo').hidden = q.kind === 'quality';
+    $('#btn-check').hidden = q.kind === 'rhythm'; // 박자는 끝나면 자동 채점
+    $('#btn-undo').hidden = q.kind === 'quality' || q.kind === 'rhythm';
     $('#key-hint').textContent = questionHint();
     renderAnswer();
     playQuestion();
   }
 
   function renderAnswer() {
+    if (q.kind === 'rhythm') return;
     if (q.kind === 'quality') renderChoices();
     else renderSlots();
     $('#btn-check').disabled = answer.length < stage.count;
@@ -438,7 +834,7 @@
   }
 
   function check() {
-    if (graded || answer.length < stage.count) return;
+    if (q.kind === 'rhythm' || graded || answer.length < stage.count) return;
     graded = true;
     const ok = q.kind === 'quality' ? answer[0] === q.quality : q.notes.every((m, i) => answer[i] === m);
     if (ok) score++;
@@ -573,7 +969,7 @@
       (mq.addEventListener ? mq.addEventListener('change', readColors) : mq.addListener(readColors));
     }
 
-    const hOf = () => (stage.black ? 260 : 210); // 반음 단계는 줄이 많아서 더 높게
+    const hOf = () => (stage.kind === 'rhythm' ? 190 : stage.black ? 260 : 210); // 반음 단계는 줄이 많아서 더 높게
     new window.p5((p) => {
       const el = $('#viz');
       const width = () => Math.max(200, el.clientWidth);
@@ -590,6 +986,7 @@
 
       p.draw = () => {
         if (el.offsetParent === null) return; // 화면에 안 보이면 그리지 않음
+        if (q.kind === 'rhythm') return drawRhythm(p, colors);
         const W = p.width, H = p.height;
         const left = 44, right = 12, top = 16, bottom = 36;
         const rows = HIGH - LOW;
@@ -720,7 +1117,7 @@
     $('#btn-undo').addEventListener('click', undo);
     $('#btn-check').addEventListener('click', check);
     $('#btn-next').addEventListener('click', () => { ensureAudio(); nextQuestion(); });
-    $('#btn-menu').addEventListener('click', () => { renderMenu(); show('#screen-menu'); });
+    $('#btn-menu').addEventListener('click', () => { stopRhythm(); renderMenu(); show('#screen-menu'); });
     renderSfxButton();
     $('#btn-sfx').addEventListener('click', () => {
       progress.sfx = !progress.sfx;
@@ -733,7 +1130,7 @@
     $('#sum-menu').addEventListener('click', () => show('#screen-menu'));
     $('#btn-reset').addEventListener('click', () => {
       if (!confirm('모든 게임의 단계 진행 기록을 지울까요?')) return;
-      progress = { games: freshGames(), sfx: progress.sfx };
+      progress = { games: freshGames(), sfx: progress.sfx, latency: progress.latency };
       saveProgress();
       renderMenu();
     });
@@ -745,8 +1142,10 @@
       if (e.key === 'Enter') { e.preventDefault(); graded ? $('#btn-next').click() : check(); }
       else if (e.key === 'Backspace') { e.preventDefault(); undo(); }
       else if (e.key === 'r' || e.key === 'R') { if (!$('#btn-replay').disabled) playQuestion(); }
+      else if (e.key === ' ' && q.kind === 'rhythm') { e.preventDefault(); onTap(); }
     });
 
+    setupRhythm();
     startViz();
   }
 
