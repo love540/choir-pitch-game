@@ -748,19 +748,14 @@
     const t0 = ctx.currentTime + 0.15;
     const listen = t0 + 4 * spb, play = listen + len, end = play + len;
     if (graded) { q.practice = true; graded = false; $('#feedback').textContent = ''; updateReplayButton(); } // 채점 후 다시: 연습(점수는 첫 시도만)
-    const replayOnly = false;
-    q.time = { t0, listen, play, end, spb, s16, len, replayOnly };
+    q.time = { t0, listen, play, end, spb, s16, len };
     for (let i = 0; i < 4; i++) click(t0 + i * spb, i === 0, 0.35);         // 예비박
     for (let b = 0; b < beats; b++) click(listen + b * spb, b % 4 === 0, 0.1); // 듣기: 메트로놈 작게
     q.onsets.forEach((o) => wood(listen + o * s16));
     const now = ctx.currentTime;
-    padLoop();
-    if (replayOnly) {
-      setBusy(play - now);
-      return;
-    }
     q.taps = [];
     q.result = null;
+    padLoop();
     for (let b = 0; b < beats; b++) click(play + b * spb, b % 4 === 0, 0.3);  // 따라 치기: 메트로놈만
     setBusy(end - now + 0.3);
     later(end - now + 0.4 + latency(), gradeRhythm);
@@ -824,13 +819,12 @@
     $('#btn-next').focus();
   }
 
-  // 박자 그림
-  // 채점 전: "예비박 → 듣기 → 따라 치기" 진행 막대 (리듬 모양은 숨김: 귀로 듣는 연습)
-  // 채점 후: 정답 리듬을 음표로 그리고, 바로 아래 같은 줄에 내가 친 위치를 표시
+  // 박자 그림: 처음부터 끝까지 같은 틀(박 번호 · "정답" 줄 · "나" 줄)을 쓴다.
+  // 치는 동안: "정답" 줄은 비워 두고(귀로 듣는 연습) 재생 위치만, "나" 줄에는 누른 곳이 바로 찍힘
+  // 채점 후: "정답" 줄에 음표가 나타나고, "나" 줄의 점이 정확/어긋남/놓침 색으로 바뀜
   function drawRhythm(p, colors) {
     const W = p.width, H = p.height;
     p.background(colors.bg);
-    if (!graded) return drawRhythmProgress(p, colors, W, H);
 
     const T = q.time, total = q.total16;
     const left = 40, right = 16;
@@ -866,10 +860,40 @@
     p.text('정답', 4, staffY);
     p.text('나', 4, tapY);
 
-    drawNotation(p, colors.ink, xOf, staffY);
+    if (graded) drawNotation(p, colors.ink, xOf, staffY);
+    else { // 아직 정답은 숨김
+      p.noStroke();
+      p.textAlign(p.CENTER, p.BOTTOM);
+      const counting = T && now >= T.t0 && now < T.listen;
+      p.fill(counting ? colors.accent : colors.muted);
+      p.textSize(counting ? 15 : 11);
+      const mid = (xOf(0) + xOf(total)) / 2;
+      p.text(counting ? `예비박 ${Math.floor((now - T.t0) / T.spb) + 1}` : '귀로 듣고 기억하기 · 음표는 채점 뒤에 보여 줘요', mid, staffY - 12);
+    }
 
-    // 내가 친 위치
-    const R = q.result;
+    // 치는 동안: 재생 위치와 누른 곳
+    if (T && !graded) {
+      const head = (start, y) => {
+        if (now < start || now > start + T.len) return;
+        const x = xOf((now - start) / T.s16);
+        p.stroke(colors.accent);
+        p.strokeWeight(2.5);
+        p.line(x, y - 22, x, y + 22);
+      };
+      head(T.listen, staffY);
+      head(T.play, tapY);
+      const lat = latency();
+      q.taps.forEach((t) => {
+        const u = (t - lat - T.play) / T.s16;
+        if (u < -1 || u > total + 1) return;
+        p.noStroke();
+        p.fill(colors.accent);
+        p.circle(xOf(u), tapY, 12);
+      });
+    }
+
+    // 채점 후: 내가 친 위치
+    const R = graded ? q.result : null;
     if (R) {
       const uOf = (t) => (t - T.play) / T.s16;
       R.notes.forEach((n, i) => {
@@ -899,7 +923,19 @@
       });
     }
 
-    // 범례
+    // 아래: 치기 전에는 진행 안내, 채점 후에는 범례
+    if (!graded) {
+      const phase = !T ? '▶ 시작하기를 누르면 시작해요'
+        : now < T.listen ? '예비박 4번 → 듣기 → 따라 치기'
+        : now < T.play ? '👂 듣기: 위 줄 · 아직 누르지 마세요'
+        : now < T.end ? '👆 따라 치기: 아래 줄 · 큰 버튼을 누르세요' : '채점 중…';
+      p.noStroke();
+      p.fill(T && now >= T.play && now < T.end ? colors.accent : colors.muted);
+      p.textAlign(p.CENTER, p.CENTER);
+      p.textSize(12);
+      p.text(`♩=${q.bpm} · ${phase}`, W / 2, H - 12);
+      return;
+    }
     const items = [['●', colors.good, '정확'], ['●', colors.warn, '조금 어긋남'], ['✕', colors.bad, '놓침'], ['●', colors.bad, '남는 탭']];
     p.textSize(11);
     p.textAlign(p.LEFT, p.CENTER);
@@ -913,68 +949,6 @@
       p.text(label, lx, H - 12);
       lx += p.textWidth(label) + 14;
     });
-
-    // 다시 듣는 중이면 재생 위치
-    if (T && T.replayOnly && now >= T.listen && now <= T.play) {
-      const x = xOf((now - T.listen) / T.s16);
-      p.stroke(colors.accent);
-      p.strokeWeight(2);
-      p.line(x, numY + 8, x, staffY + 22);
-    }
-  }
-
-  function drawRhythmProgress(p, colors, W, H) {
-    const T = q.time, nb = q.total16 / 4;
-    const segs = [['예비박', 4], ['듣기', nb], ['따라 치기', nb]];
-    const totalBeats = 4 + 2 * nb;
-    const left = 16, right = 16, y = H / 2 - 6, h = 30;
-    const xOfBeat = (b) => left + (W - left - right) * (b / totalBeats);
-    const now = ctx ? ctx.currentTime - latency() : 0;
-    const elapsed = T ? (now - T.t0) / T.spb : -1; // 지난 박 수
-    let start = 0;
-    segs.forEach(([label, beats], si) => {
-      const x0 = xOfBeat(start), x1 = xOfBeat(start + beats);
-      const active = elapsed >= start && elapsed < start + beats;
-      const base = si === 2 ? colors.accent : si === 1 ? colors.ink : colors.muted;
-      const c = p.color(base);
-      c.setAlpha(active ? 70 : 22);
-      p.noStroke();
-      p.fill(c);
-      p.rect(x0 + 2, y, x1 - x0 - 4, h, 8);
-      // 박 눈금
-      p.stroke(colors.line);
-      p.strokeWeight(1);
-      for (let b = 1; b < beats; b++) p.line(xOfBeat(start + b), y + 8, xOfBeat(start + b), y + h - 8);
-      p.noStroke();
-      p.fill(active ? (si === 2 ? colors.accent : colors.ink) : colors.muted);
-      p.textAlign(p.CENTER, p.BOTTOM);
-      p.textSize(active ? 13 : 12);
-      p.text(label, (x0 + x1) / 2, y - 8);
-      start += beats;
-    });
-    // 따라 치기 구간에 내 탭 표시
-    if (T) {
-      const lat = latency();
-      q.taps.forEach((t) => {
-        const b = 4 + nb + (t - lat - T.play) / T.spb;
-        if (b < 4 + nb - 0.5 || b > totalBeats + 0.5) return;
-        p.noStroke();
-        p.fill(colors.accent);
-        p.circle(xOfBeat(b), y + h / 2, 9);
-      });
-    }
-    // 재생 위치
-    if (T && elapsed >= 0 && elapsed <= totalBeats) {
-      const x = xOfBeat(elapsed);
-      p.stroke(colors.accent);
-      p.strokeWeight(2.5);
-      p.line(x, y - 4, x, y + h + 4);
-    }
-    p.noStroke();
-    p.fill(colors.muted);
-    p.textAlign(p.CENTER, p.TOP);
-    p.textSize(11);
-    p.text(T ? `♩=${q.bpm} · 리듬 모양은 채점 뒤에 보여 줘요` : '▶ 시작하기를 누르면 시작해요', W / 2, y + h + 14);
   }
 
   // 리듬을 음표로 그리기 (머리, 기둥, 꼬리/빔, 점, 쉼표)
@@ -1121,6 +1095,7 @@
     const cp = $('#calib-pad');
     cp.addEventListener('pointerdown', (e) => { e.preventDefault(); onCalibTap(); });
     $('#calib-start').addEventListener('click', startCalib);
+    $('#pad-calib').addEventListener('click', () => { stopRhythm(); openCalib(); });
     $('#calib-back').addEventListener('click', () => { stopRhythm(); calib = null; renderMenu(); show('#screen-menu'); });
   }
 
@@ -1206,6 +1181,7 @@
     $('#slots').hidden = isQuality || isRhythm || isSing;
     $('#choices').hidden = !isQuality;
     $('#tap-pad').hidden = !isRhythm;
+    $('#pad-calib').hidden = !(isRhythm && progress.latency == null);
     $('#sing-box').hidden = !isSing;
     $('#btn-ref').hidden = s.ref === false;
     $('#btn-ref').textContent = s.chordSing ? '🎶 화음 듣기' : isSing ? '🔔 기준음 듣기' : '🔔 기준음 도';
@@ -1615,7 +1591,7 @@
   // ---------- 새 버전 자동 반영 ----------
   // 주소는 항상 https://love540.github.io/choir-pitch-game 하나. 배포할 때 APP_VERSION, version.json,
   // html의 ?v= 숫자를 함께 올리면, 열려 있던 페이지도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀐다.
-  const APP_VERSION = 14;
+  const APP_VERSION = 15;
   async function checkForUpdate() {
     if (location.protocol === 'file:') return; // 로컬 버전은 확인하지 않음
     try {

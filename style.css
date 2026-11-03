@@ -370,3 +370,4 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .tap-pad.play { border-width: 3px; }
 .tap-pad.hit .pad-sub, .tap-pad.hit .pad-phase { color: var(--accent-ink); }
 .tap-pad.hit .pad-beats i { border-color: var(--accent-ink); color: var(--accent-ink); }
+.tap-pad.hit .pad-beats i.on { background: var(--accent-ink); border-color: var(--accent-ink); color: var(--accent); }
