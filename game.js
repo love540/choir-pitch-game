@@ -58,18 +58,18 @@
       ],
     },
   ];
-  // 리듬 조각: len=박 수, on=16분음표 단위 위치
+  // 리듬 조각: len=박 수, on=16분음표 단위 소리 위치, ev=악보용 [길이(16분음표 단위), 쉼표면 'r']
   const CELLS = {
-    q: { len: 1, on: [0] },            // ♩
-    h: { len: 2, on: [0] },            // 𝅗𝅥
-    r: { len: 1, on: [] },             // 4분쉼표
-    ee: { len: 1, on: [0, 2] },        // ♪♪
-    re: { len: 1, on: [2] },           // 8분쉼표 + ♪
-    dq: { len: 2, on: [0, 6] },        // 점4분 + 8분
-    s4: { len: 1, on: [0, 1, 2, 3] },  // 16분 넷
-    s3a: { len: 1, on: [0, 2, 3] },    // 8분 + 16분 둘
-    s3b: { len: 1, on: [0, 1, 2] },    // 16분 둘 + 8분
-    syn: { len: 2, on: [0, 2, 6] },    // ♪♩♪ 당김음
+    q: { len: 1, on: [0] , ev: [[4]] },            // ♩
+    h: { len: 2, on: [0] , ev: [[8]] },            // 𝅗𝅥
+    r: { len: 1, on: [] , ev: [[4, 'r']] },             // 4분쉼표
+    ee: { len: 1, on: [0, 2] , ev: [[2], [2]] },        // ♪♪
+    re: { len: 1, on: [2] , ev: [[2, 'r'], [2]] },           // 8분쉼표 + ♪
+    dq: { len: 2, on: [0, 6] , ev: [[6], [2]] },        // 점4분 + 8분
+    s4: { len: 1, on: [0, 1, 2, 3] , ev: [[1], [1], [1], [1]] },  // 16분 넷
+    s3a: { len: 1, on: [0, 2, 3] , ev: [[2], [1], [1]] },    // 8분 + 16분 둘
+    s3b: { len: 1, on: [0, 1, 2] , ev: [[1], [1], [2]] },    // 16분 둘 + 8분
+    syn: { len: 2, on: [0, 2, 6] , ev: [[2], [4], [2]] },    // ♪♩♪ 당김음
   };
   GAMES.push({
     id: 'rhythm', title: '박자 따라 하기', desc: '예비박 뒤에 들려주는 리듬을 듣고, 이어지는 메트로놈에 맞춰 버튼으로 똑같이 쳐요.',
@@ -320,9 +320,10 @@
   // 리듬: 마디 안에 리듬 조각을 채운다. 새로 배우는 조각(focus)이 꼭 하나는 들어가게.
   function makeRhythmQuestion() {
     const total = 4 * stage.bars;
-    let onsets, key;
+    let onsets, events, key;
     for (;;) {
       onsets = [];
+      events = [];
       const used = [];
       let beat = 0;
       while (beat < total) {
@@ -331,6 +332,8 @@
         const c = pick(fits);
         if (beat === 0 && CELLS[c].on[0] !== 0 && stage.id <= 2) continue;
         CELLS[c].on.forEach((o) => onsets.push(beat * 4 + o));
+        let pos = beat * 4;
+        CELLS[c].ev.forEach(([dur, r]) => { events.push({ pos, dur, rest: r === 'r' }); pos += dur; });
         used.push(c);
         beat += CELLS[c].len;
       }
@@ -341,7 +344,7 @@
       if (key !== lastKey) break;
     }
     lastKey = key;
-    return { kind: 'rhythm', onsets, total16: total * 4, bpm: stage.bpm, taps: [], result: null };
+    return { kind: 'rhythm', onsets, events, total16: total * 4, bpm: stage.bpm, taps: [], result: null };
   }
 
   const makeQuestion = () => (stage.kind === 'seq' ? makeSeqQuestion()
@@ -616,6 +619,7 @@
   let calib = null;
 
   function stopRhythm() {
+    cancelAnimationFrame(padRaf);
     rhythmTimers.forEach(clearTimeout);
     rhythmTimers = [];
     rhythmNodes.forEach((n) => { try { n.stop(); } catch (e) { /* 이미 끝남 */ } });
@@ -660,16 +664,46 @@
     return ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0;
   }
 
-  function padState(state) {
+  // 큰 버튼 = 박자 안내판: 지금 단계(예비박/듣기/따라 치기)와 박 번호 1·2·3·4를 메트로놈에 맞춰 보여 줌
+  function padState(state, opts = {}) {
     const pad = $('#tap-pad');
-    pad.classList.remove('idle', 'listen', 'play', 'done');
+    pad.classList.remove('idle', 'count', 'listen', 'play', 'done');
     pad.classList.add(state);
-    pad.textContent = {
-      idle: '▶ 위의 "시작하기"를 누르면 예비박 4번 뒤에 리듬이 나와요',
-      listen: '👂 듣는 중… 다 들은 뒤에 따라 치세요',
-      play: '👏 지금 따라 치세요!',
-      done: '채점 끝! 아래 "다음 문제"를 눌러 주세요',
-    }[state];
+    const phase = { idle: '▶ 위의 "시작하기"를 누르세요', count: '예비박', listen: '👂 듣기', play: '👏 지금 따라 치세요!', done: '채점 끝' }[state];
+    const sub = opts.sub || { idle: '예비박 4번 → 리듬 듣기 → 같은 길이만큼 따라 치기', count: '곧 리듬이 나와요', listen: '아직 치지 말고 잘 들어 보세요', play: '메트로놈에 맞춰 이 버튼을 누르세요', done: '아래 "다음 문제"를 눌러 주세요' }[state];
+    const beats = [1, 2, 3, 4].map((n, i) => `<i class="${i === opts.beat ? 'on' : ''}">${n}</i>`).join('');
+    pad.innerHTML = `<span class="pad-phase">${phase}</span><span class="pad-beats">${beats}</span><span class="pad-sub">${sub}</span>`;
+  }
+
+  let padRaf = 0, padKey = '';
+  function padLoop() {
+    cancelAnimationFrame(padRaf);
+    padKey = '';
+    const step = () => {
+      if (q.kind !== 'rhythm' || !q.time) return;
+      const T = q.time, now = ctx.currentTime - latency(); // 귀에 들리는 순간에 맞춤
+      const two = q.total16 > 16;
+      let st, beat = -1, sub;
+      if (now < T.listen) { st = 'count'; beat = now < T.t0 ? -1 : Math.floor((now - T.t0) / T.spb); }
+      else if (now < T.play) {
+        st = 'listen';
+        const b = Math.floor((now - T.listen) / T.spb);
+        beat = b % 4;
+        if (two) sub = `${Math.floor(b / 4) + 1}마디째 듣는 중`;
+      } else if (now < T.end && !T.replayOnly) {
+        st = 'play';
+        const b = Math.floor((now - T.play) / T.spb);
+        beat = b % 4;
+        if (two) sub = `${Math.floor(b / 4) + 1}마디째 · 메트로놈에 맞춰 누르세요`;
+      } else {
+        if (T.replayOnly) padState('done');
+        return; // 따라 치기가 끝나면 채점이 상태를 바꿈
+      }
+      const key = st + beat + (sub || '');
+      if (key !== padKey) { padKey = key; padState(st, { beat, sub }); }
+      padRaf = requestAnimationFrame(step);
+    };
+    padRaf = requestAnimationFrame(step);
   }
 
   function playRhythm() {
@@ -684,6 +718,7 @@
     for (let b = 0; b < beats; b++) click(listen + b * spb, b % 4 === 0, 0.1); // 듣기: 메트로놈 작게
     q.onsets.forEach((o) => wood(listen + o * s16));
     const now = ctx.currentTime;
+    padLoop();
     if (replayOnly) {
       setBusy(play - now);
       return;
@@ -691,9 +726,7 @@
     q.taps = [];
     q.result = null;
     for (let b = 0; b < beats; b++) click(play + b * spb, b % 4 === 0, 0.3);  // 따라 치기: 메트로놈만
-    padState('listen');
     setBusy(end - now + 0.3);
-    later(play - now - 0.03, () => padState('play'));
     later(end - now + 0.4 + latency(), gradeRhythm);
   }
 
@@ -749,122 +782,238 @@
     padState('done');
     $('#btn-next').hidden = false;
     $('#btn-next').textContent = qIndex >= ROUND_LEN ? '결과 보기' : '다음 문제';
-    $('#key-hint').textContent = '위 그림에서 초록 동그라미는 맞게 친 박, 빨강은 놓치거나 남은 탭이에요. "처음부터 다시"로 리듬을 다시 들을 수 있어요.';
+    $('#key-hint').textContent = '위 그림: 정답 리듬(음표)과 바로 아래 내가 친 위치. "처음부터 다시"로 리듬을 다시 들을 수 있어요.';
     $('#btn-next').focus();
   }
 
-  // 박자 그림: 위 줄은 들려준 리듬, 아래 줄은 내가 친 탭
+  // 박자 그림
+  // 채점 전: "예비박 → 듣기 → 따라 치기" 진행 막대 (리듬 모양은 숨김: 귀로 듣는 연습)
+  // 채점 후: 정답 리듬을 음표로 그리고, 바로 아래 같은 줄에 내가 친 위치를 표시
   function drawRhythm(p, colors) {
     const W = p.width, H = p.height;
-    const left = 52, right = 14;
-    const rows = [{ y: 62, label: '듣기' }, { y: 132, label: '따라' }];
-    const total = q.total16;
-    const xOf = (u) => left + (W - left - right) * (u / total);
-    const now = ctx ? ctx.currentTime : 0;
-    const T = q.time;
     p.background(colors.bg);
+    if (!graded) return drawRhythmProgress(p, colors, W, H);
 
-    // 박 번호
-    p.noStroke();
-    p.fill(colors.muted);
-    p.textSize(11);
+    const T = q.time, total = q.total16;
+    const left = 40, right = 16;
+    const GAP = total > 16 ? 18 : 0; // 두 마디면 마디선 자리 여백
+    const unit = (W - left - right - 26 - GAP) / total; // 끝 마디선 앞에 꼬리 자리를 남김
+    const xOf = (u) => left + 8 + u * unit + (u >= 16 ? GAP : 0);
+    const numY = 16, staffY = 82, tapY = 134;
+    const now = ctx ? ctx.currentTime - latency() : 0;
+
+    // 박 번호와 박 세로선
     p.textAlign(p.CENTER, p.CENTER);
-    for (let u = 0; u < total; u += 4) p.text(String((u / 4) % 4 + 1), xOf(u), 26);
-
-    rows.forEach((r) => {
+    p.textSize(11);
+    for (let u = 0; u < total; u += 4) {
       p.noStroke();
-      p.fill(colors.ink);
-      p.textAlign(p.LEFT, p.CENTER);
-      p.textSize(12);
-      p.text(r.label, 10, r.y);
-      for (let u = 0; u <= total; u += 2) {
-        const strong = u % 16 === 0, beat = u % 4 === 0;
-        p.stroke(colors.line);
-        p.strokeWeight(strong ? 2 : beat ? 1 : 0.5);
-        if (!beat) p.drawingContext.setLineDash([2, 4]);
-        p.line(xOf(u), r.y - 20, xOf(u), r.y + 20);
-        p.drawingContext.setLineDash([]);
-      }
+      p.fill(colors.muted);
+      p.text(String((u / 4) % 4 + 1), xOf(u), numY);
       p.stroke(colors.line);
       p.strokeWeight(1);
-      p.line(xOf(0), r.y, xOf(total), r.y);
-    });
+      p.drawingContext.setLineDash([2, 4]);
+      p.line(xOf(u), numY + 10, xOf(u), tapY + 16);
+      p.drawingContext.setLineDash([]);
+    }
+    // 줄과 마디선
+    p.stroke(colors.muted);
+    p.strokeWeight(1);
+    p.line(xOf(0) - 8, staffY, xOf(total) + 14, staffY);
+    const barX = (u) => (u === total ? xOf(u) + 14 : xOf(u) - GAP / 2 - unit / 2);
+    for (let u = 16; u <= total; u += 16) { p.strokeWeight(u === total ? 2.5 : 1.5); p.line(barX(u), staffY - 16, barX(u), staffY + 16); }
+    p.noStroke();
+    p.fill(colors.muted);
+    p.textAlign(p.LEFT, p.CENTER);
+    p.textSize(11);
+    p.text('정답', 4, staffY);
+    p.text('나', 4, tapY);
 
-    if (!T) return;
-    const uAt = (t, start) => (t - start) / T.s16;
+    drawNotation(p, colors.ink, xOf, staffY);
 
-    // 예비박 숫자
-    if (now >= T.t0 && now < T.listen) {
-      const n = Math.floor((now - T.t0) / T.spb) + 1;
-      p.noStroke();
-      p.fill(colors.accent);
-      p.textAlign(p.CENTER, p.CENTER);
-      p.textSize(15);
-      p.text(`예비박 ${n}`, W / 2, H - 16);
+    // 내가 친 위치
+    const R = q.result;
+    if (R) {
+      const uOf = (t) => (t - T.play) / T.s16;
+      R.notes.forEach((n, i) => {
+        const xe = xOf(q.onsets[i]);
+        if (n.tap == null) { // 놓침: ✕
+          p.stroke(colors.bad);
+          p.strokeWeight(2.5);
+          p.line(xe - 6, tapY - 6, xe + 6, tapY + 6);
+          p.line(xe - 6, tapY + 6, xe + 6, tapY - 6);
+          return;
+        }
+        const exact = Math.abs(n.d) <= 0.06;
+        const xt = xOf(uOf(n.tap));
+        p.noStroke();
+        p.fill(exact ? colors.good : colors.warn);
+        p.circle(xt, tapY, 14);
+        if (!exact) {
+          p.textAlign(p.CENTER, p.TOP);
+          p.textSize(10);
+          p.text(n.d < 0 ? '빠름' : '늦음', xt, tapY + 10);
+        }
+      });
+      R.extras.forEach((t) => {
+        p.noStroke();
+        p.fill(colors.bad);
+        p.circle(xOf(uOf(t)), tapY, 10);
+      });
     }
 
-    // 재생 위치
-    const head = (start, y) => {
-      if (now < start || now > start + T.len) return;
-      const x = xOf(uAt(now, start));
+    // 범례
+    const items = [['●', colors.good, '정확'], ['●', colors.warn, '조금 어긋남'], ['✕', colors.bad, '놓침'], ['●', colors.bad, '남는 탭']];
+    p.textSize(11);
+    p.textAlign(p.LEFT, p.CENTER);
+    let lx = left - 30;
+    items.forEach(([sym, col, label]) => {
+      p.noStroke();
+      p.fill(col);
+      p.text(sym, lx, H - 12);
+      lx += 13;
+      p.fill(colors.muted);
+      p.text(label, lx, H - 12);
+      lx += p.textWidth(label) + 14;
+    });
+
+    // 다시 듣는 중이면 재생 위치
+    if (T && T.replayOnly && now >= T.listen && now <= T.play) {
+      const x = xOf((now - T.listen) / T.s16);
       p.stroke(colors.accent);
       p.strokeWeight(2);
-      p.line(x, y - 24, x, y + 24);
-    };
-    head(T.listen, rows[0].y);
-    if (!T.replayOnly || !graded) head(T.play, rows[1].y);
-
-    // 위 줄: 채점 전에는 소리 날 때만 잠깐 반짝, 채점 후에는 리듬 전체 표시
-    q.onsets.forEach((o, i) => {
-      const x = xOf(o);
-      const age = now - (T.listen + o * T.s16);
-      if (graded) {
-        const nextU = i + 1 < q.onsets.length ? q.onsets[i + 1] : total;
-        p.noStroke();
-        const c = p.color(colors.accent); c.setAlpha(50);
-        p.fill(c);
-        p.rect(x, rows[0].y - 6, Math.max(0, xOf(Math.min(nextU, o + 4)) - x - 3), 12, 6);
-        p.fill(colors.accent);
-        p.circle(x, rows[0].y, 14);
-      } else if (age >= 0 && age < 0.18) {
-        p.noStroke();
-        p.fill(colors.accent);
-        p.circle(x, rows[0].y, 18 - age * 40);
-      }
-    });
-
-    // 아래 줄: 내 탭
-    const lat = latency();
-    if (!graded) {
-      q.taps.forEach((t) => {
-        const u = uAt(t - lat, T.play);
-        if (u < -1 || u > total + 1) return;
-        p.noStroke();
-        p.fill(colors.accent);
-        p.circle(xOf(u), rows[1].y, 12);
-      });
-      return;
+      p.line(x, numY + 8, x, staffY + 22);
     }
-    const R = q.result;
-    if (!R) return;
-    R.notes.forEach((n) => {
-      const xe = xOf(uAt(n.e, T.play));
-      p.noFill();
-      p.strokeWeight(2);
-      p.stroke(n.tap != null ? colors.good : colors.bad);
-      p.circle(xe, rows[1].y, 18);
-      if (n.tap != null) {
-        const xt = xOf(uAt(n.tap, T.play));
+  }
+
+  function drawRhythmProgress(p, colors, W, H) {
+    const T = q.time, nb = q.total16 / 4;
+    const segs = [['예비박', 4], ['듣기', nb], ['따라 치기', nb]];
+    const totalBeats = 4 + 2 * nb;
+    const left = 16, right = 16, y = H / 2 - 6, h = 30;
+    const xOfBeat = (b) => left + (W - left - right) * (b / totalBeats);
+    const now = ctx ? ctx.currentTime - latency() : 0;
+    const elapsed = T ? (now - T.t0) / T.spb : -1; // 지난 박 수
+    let start = 0;
+    segs.forEach(([label, beats], si) => {
+      const x0 = xOfBeat(start), x1 = xOfBeat(start + beats);
+      const active = elapsed >= start && elapsed < start + beats;
+      const base = si === 2 ? colors.accent : si === 1 ? colors.ink : colors.muted;
+      const c = p.color(base);
+      c.setAlpha(active ? 70 : 22);
+      p.noStroke();
+      p.fill(c);
+      p.rect(x0 + 2, y, x1 - x0 - 4, h, 8);
+      // 박 눈금
+      p.stroke(colors.line);
+      p.strokeWeight(1);
+      for (let b = 1; b < beats; b++) p.line(xOfBeat(start + b), y + 8, xOfBeat(start + b), y + h - 8);
+      p.noStroke();
+      p.fill(active ? (si === 2 ? colors.accent : colors.ink) : colors.muted);
+      p.textAlign(p.CENTER, p.BOTTOM);
+      p.textSize(active ? 13 : 12);
+      p.text(label, (x0 + x1) / 2, y - 8);
+      start += beats;
+    });
+    // 따라 치기 구간에 내 탭 표시
+    if (T) {
+      const lat = latency();
+      q.taps.forEach((t) => {
+        const b = 4 + nb + (t - lat - T.play) / T.spb;
+        if (b < 4 + nb - 0.5 || b > totalBeats + 0.5) return;
         p.noStroke();
-        p.fill(Math.abs(n.d) <= 0.06 ? colors.good : colors.accent);
-        p.circle(xt, rows[1].y, 10);
+        p.fill(colors.accent);
+        p.circle(xOfBeat(b), y + h / 2, 9);
+      });
+    }
+    // 재생 위치
+    if (T && elapsed >= 0 && elapsed <= totalBeats) {
+      const x = xOfBeat(elapsed);
+      p.stroke(colors.accent);
+      p.strokeWeight(2.5);
+      p.line(x, y - 4, x, y + h + 4);
+    }
+    p.noStroke();
+    p.fill(colors.muted);
+    p.textAlign(p.CENTER, p.TOP);
+    p.textSize(11);
+    p.text(T ? `♩=${q.bpm} · 리듬 모양은 채점 뒤에 보여 줘요` : '▶ 시작하기를 누르면 시작해요', W / 2, y + h + 14);
+  }
+
+  // 리듬을 음표로 그리기 (머리, 기둥, 꼬리/빔, 점, 쉼표)
+  function drawNotation(p, ink, xOf, sy) {
+    const ev = q.events;
+    const stemH = 30, hx = (e) => xOf(e.pos);
+    const isShort = (e) => !e.rest && e.dur < 4;
+    // 같은 박 안에서 이어지는 짧은 음끼리 빔으로 묶기
+    const groups = [];
+    ev.forEach((e, i) => {
+      const g = groups[groups.length - 1];
+      const prev = ev[i - 1];
+      if (isShort(e) && g && prev && isShort(prev) && g.includes(prev) && Math.floor(prev.pos / 4) === Math.floor(e.pos / 4)) g.push(e);
+      else if (isShort(e)) groups.push([e]);
+    });
+    p.stroke(ink);
+    p.fill(ink);
+    ev.forEach((e) => {
+      const x = hx(e);
+      if (e.rest) return drawRest(p, ink, x, sy, e.dur);
+      // 머리
+      p.push();
+      p.translate(x, sy);
+      p.rotate(-0.35);
+      p.strokeWeight(1.5);
+      if (e.dur >= 8) { p.noFill(); p.stroke(ink); } else { p.fill(ink); p.noStroke(); }
+      p.ellipse(0, 0, 12, 8.5);
+      p.pop();
+      // 기둥
+      p.stroke(ink);
+      p.strokeWeight(1.4);
+      p.line(x + 5.4, sy - 1.5, x + 5.4, sy - stemH);
+      if (e.dur === 6) { p.noStroke(); p.fill(ink); p.circle(x + 11, sy - 2, 3.4); }
+    });
+    groups.forEach((g) => {
+      const top = sy - stemH;
+      if (g.length === 1) { // 꼬리
+        const e = g[0], x = hx(e) + 5.4;
+        p.noFill();
+        p.stroke(ink);
+        p.strokeWeight(1.8);
+        const flags = e.dur === 1 ? 2 : 1;
+        for (let k = 0; k < flags; k++) p.bezier(x, top + k * 6, x + 2, top + 8 + k * 6, x + 9, top + 10 + k * 6, x + 6, top + 18 + k * 6);
+        return;
+      }
+      p.noStroke();
+      p.fill(ink);
+      const x0 = hx(g[0]) + 5.4, x1 = hx(g[g.length - 1]) + 5.4;
+      p.rect(x0 - 0.7, top, x1 - x0 + 1.4, 4); // 첫째 빔
+      for (let i = 0; i < g.length - 1; i++) { // 16분음표끼리 둘째 빔
+        if (g[i].dur === 1 && g[i + 1].dur === 1) {
+          const a = hx(g[i]) + 5.4, b = hx(g[i + 1]) + 5.4;
+          p.rect(a - 0.7, top + 6, b - a + 1.4, 4);
+        }
       }
     });
-    R.extras.forEach((t) => {
+  }
+
+  function drawRest(p, ink, x, sy, dur) {
+    p.stroke(ink);
+    p.strokeWeight(2);
+    p.noFill();
+    if (dur >= 4) { // 4분쉼표: 번개 모양
+      p.beginShape();
+      p.vertex(x - 2, sy - 13); p.vertex(x + 4, sy - 6); p.vertex(x - 1, sy); p.vertex(x + 4, sy + 6);
+      p.endShape();
+      p.bezier(x + 4, sy + 6, x - 4, sy + 3, x - 3, sy + 10, x + 1, sy + 13);
+    } else { // 8분쉼표: 왼쪽 위 점에서 오른쪽으로 감아 올라갔다가 비스듬히 내려옴
       p.noStroke();
-      p.fill(colors.bad);
-      p.circle(xOf(uAt(t, T.play)), rows[1].y, 10);
-    });
+      p.fill(ink);
+      p.circle(x, sy - 5, 5.5);
+      p.noFill();
+      p.stroke(ink);
+      p.strokeWeight(1.7);
+      p.bezier(x, sy - 2.5, x + 3, sy - 1.5, x + 5.5, sy - 4, x + 6.5, sy - 7);
+      p.line(x + 6.5, sy - 7, x + 2, sy + 9);
+    }
   }
 
   // ---------- 이어폰 지연 맞추기 ----------
@@ -1273,7 +1422,7 @@
     const readColors = () => {
       colors = {
         bg: css('--viz-bg'), ink: css('--ink'), muted: css('--muted'), line: css('--line'),
-        accent: css('--accent'), good: css('--good'), bad: css('--bad'),
+        accent: css('--accent'), good: css('--good'), bad: css('--bad'), warn: css('--warn'),
       };
     };
     readColors();
@@ -1426,7 +1575,7 @@
   // ---------- 새 버전 자동 반영 ----------
   // 주소는 항상 https://love540.github.io/choir-pitch-game 하나. 배포할 때 APP_VERSION, version.json,
   // html의 ?v= 숫자를 함께 올리면, 열려 있던 페이지도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀐다.
-  const APP_VERSION = 10;
+  const APP_VERSION = 11;
   async function checkForUpdate() {
     if (location.protocol === 'file:') return; // 로컬 버전은 확인하지 않음
     try {
