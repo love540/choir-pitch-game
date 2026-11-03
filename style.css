@@ -227,8 +227,9 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /* 게임 묶음 (첫 화면) */
 .game-block { margin-top: 22px; }
-/* 마지막 게임도 제목이 맨 위에 닿을 때까지 스크롤되게: 화면 높이에서 아래 '진행 기록 지우기' 줄과 여백만큼 뺀 높이 */
-.game-block:last-child { min-height: calc(100vh - 110px); min-height: calc(100svh - 110px); }
+/* 마지막 게임도 제목이 맨 위에 닿을 때까지 스크롤되게: 화면 높이에서 아래 '진행 기록 지우기' 줄과 여백만큼 뺀 높이.
+   사파리는 스크롤하면 주소창이 줄어 화면이 커지므로, 가장 큰 화면 높이(lvh) 기준으로 잡아야 끝에서 걸리지 않는다. */
+.game-block:last-child { min-height: calc(100vh - 110px); min-height: calc(100lvh - 110px); }
 .game-block h2 { margin-bottom: 2px; }
 .game-block p { margin: 4px 0 10px; }
 .game-head {
@@ -274,11 +275,11 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   font-weight: 700;
   user-select: none;
   -webkit-user-select: none;
-  transition: transform .05s;
 }
 .tap-pad.play { border-style: solid; border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .tap-pad.done { border-style: solid; }
-.tap-pad.hit { transform: scale(.98); background: var(--accent); color: var(--accent-ink); }
+.tap-pad.hit { background: var(--accent); color: var(--accent-ink); }
+.tap-pad * { pointer-events: none; } /* 어디를 눌러도 버튼이 받음 */
 
 /* 첫 음 잡기 */
 .sing-box { margin-top: 12px; text-align: center; }
@@ -345,7 +346,7 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .action-bar:not(:has(> button:not([hidden]))) { display: none; } /* 보일 버튼이 없으면 막대도 숨김 */
 
 /* 박자 안내판 (큰 버튼 안) */
-.tap-pad { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 170px; }
+.tap-pad { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 180px; padding: 12px 16px; }
 .pad-phase { font-size: 1.1rem; font-weight: 800; }
 .pad-beats { display: flex; gap: 10px; }
 .pad-beats i {
@@ -356,12 +357,17 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   font-size: 1.2rem; font-weight: 800;
   border: 2px solid var(--line);
   color: var(--muted);
-  transition: transform .06s;
 }
-.pad-beats i.on { background: var(--ink); border-color: var(--ink); color: var(--bg); transform: scale(1.12); }
+.pad-beats i.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .tap-pad.play .pad-beats i.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .tap-pad.listen { border-style: solid; color: var(--ink); }
 .tap-pad.count { border-style: solid; }
-.pad-sub { font-size: .8rem; font-weight: 500; color: var(--muted); }
+.pad-sub { font-size: .8rem; font-weight: 500; color: var(--muted); margin-top: 4px; line-height: 1.4; }
 .tap-pad.play .pad-sub { color: var(--accent); }
 .tap-pad.idle .pad-beats, .tap-pad.done .pad-beats { opacity: .35; }
+
+/* 따라 칠 차례에는 버튼을 더 눈에 띄게 */
+.tap-pad.play { border-width: 3px; }
+.tap-pad.hit .pad-sub, .tap-pad.hit .pad-phase { color: var(--accent-ink); }
+.tap-pad.hit .pad-beats i { border-color: var(--accent-ink); color: var(--accent-ink); }
+.tap-pad.hit .pad-beats i.on { background: var(--accent-ink); border-color: var(--accent-ink); color: var(--accent); }
