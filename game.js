@@ -2,6 +2,7 @@
  * 1) 기준음 청음: 기준음 도(C4)를 들려준 뒤 문제 음을 들려주고, 건반으로 맞힌다.
  * 4) 화음 청음: 3화음의 장·단(감·증)을 구별하고, 화음 속 베이스·소프라노·가운데 음을 찾는다.
  * 3) 박자 따라 하기: 들려준 리듬을 메트로놈에 맞춰 버튼으로 따라 친다. 이어폰 지연을 재서 보정한다.
+ * 6) 첫 음 잡기: 기준음만 듣고 목표 음을 부르면 마이크로 음정을 잰다(녹음은 저장하지 않음).
  * - 소리는 Web Audio로 직접 합성한다(음원 파일 없음).
  * - 음 계단 그림은 p5(instance mode)로 그린다.
  */
@@ -14,7 +15,7 @@
   const NAMES = ['도', '도♯', '레', '레♯', '미', '파', '파♯', '솔', '솔♯', '라', '라♯', '시'];
   const LETTERS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
   const isBlack = (m) => [1, 3, 6, 8, 10].includes(m % 12);
-  const noteName = (m) => (m >= 72 ? '높은 ' : '') + NAMES[m % 12];
+  const noteName = (m) => (m >= 72 ? '높은 ' : m < 60 ? '낮은 ' : '') + NAMES[m % 12];
   const noteLetter = (m) => LETTERS[m % 12] + (Math.floor(m / 12) - 1);
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -83,7 +84,21 @@
   });
   GAMES[1].stages.forEach((s) => { s.count = 1; s.black = true; });
   GAMES[2].stages.forEach((s) => { s.count = 0; s.black = false; s.ref = false; });
-  const GAME_ICONS = { pitch: '🎯', chord: '🎶', rhythm: '🥁' };
+  const SING_REFS = [57, 59, 60, 62, 64, 65, 67]; // 라3 ~ 솔4
+  const SING_IVS = [-7, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 7];
+  GAMES.push({
+    id: 'firstnote', title: '첫 음 잡기', desc: '기준음 하나만 듣고 목표 음을 바로 불러요. 마이크로 음정을 재요(녹음은 저장하지 않아요).',
+    stages: [
+      { id: 1, kind: 'sing', title: '같은 음 내기', desc: '기준음 도를 듣고 같은 음 · ±50센트', refs: [60], iv: [0], tol: 50 },
+      { id: 2, kind: 'sing', title: '도·미·솔', desc: '기준음 도 → 도, 미, 솔 · ±50센트', refs: [60], iv: [0, 4, 7], tol: 50 },
+      { id: 3, kind: 'sing', title: '흰 건반', desc: '기준음 도 → 레~시 · ±50센트', refs: [60], iv: [2, 4, 5, 7, 9, 11], tol: 50 },
+      { id: 4, kind: 'sing', title: '반음 포함', desc: '기준음 도 → 도♯~시 · ±50센트', refs: [60], iv: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], tol: 50 },
+      { id: 5, kind: 'sing', title: '기준음이 바뀌어요', desc: '여러 기준음에서 위아래 음 · ±50센트', refs: SING_REFS, iv: SING_IVS, tol: 50 },
+      { id: 6, kind: 'sing', title: '정확하게 · 잠깐 쉬고', desc: '기준음 뒤 2초 쉬고 부르기 · ±30센트', refs: SING_REFS, iv: SING_IVS, tol: 30, delay: 2 },
+    ],
+  });
+  GAMES[3].stages.forEach((s) => { s.count = 0; s.black = false; });
+  const GAME_ICONS = { pitch: '🎯', chord: '🎶', rhythm: '🥁', firstnote: '🎤' };
   const ROUND_LEN = 10;
   const PASS = 8;
 
@@ -161,6 +176,7 @@
 
   function playQuestion() {
     if (q.kind === 'rhythm') return playRhythm();
+    if (q.kind === 'sing') { if (mic) beginSing(); return; } // 마이크 허용 전에는 시작 버튼을 기다림
     ensureAudio();
     let t = ctx.currentTime + 0.08;
     timeline = [];
@@ -194,7 +210,7 @@
   function playRef() {
     ensureAudio();
     const t = ctx.currentTime + 0.05;
-    tone(REF, t, 1.0);
+    tone(q.kind === 'sing' ? q.ref : REF, t, 1.0);
     timeline = [{ start: t, end: t + 1.0, kind: 'ref' }];
     setBusy(1.1);
   }
@@ -329,7 +345,269 @@
   }
 
   const makeQuestion = () => (stage.kind === 'seq' ? makeSeqQuestion()
-    : stage.kind === 'rhythm' ? makeRhythmQuestion() : makeChordQuestion());
+    : stage.kind === 'rhythm' ? makeRhythmQuestion()
+    : stage.kind === 'sing' ? makeSingQuestion() : makeChordQuestion());
+
+  // ---------- 첫 음 잡기 (마이크로 음정 재기) ----------
+  // 녹음은 저장하지 않는다. 마이크 소리에서 그때그때 음 높이만 재고 버린다.
+  const LISTEN_SEC = 6;        // 부르기를 기다리는 최대 시간
+  const STABLE_SEC = 0.4;      // 이만큼 음이 흔들리지 않으면 '첫 음'으로 본다
+  const FRAME_MS = 40;
+  const INTERVALS = ['같은 음', '단2도', '장2도', '단3도', '장3도', '완전4도', '증4도', '완전5도', '단6도', '장6도', '단7도', '장7도', '옥타브'];
+  let mic = null;
+  let listenTimer = null;
+  let singTimers = [];
+
+  const midiFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const centsOf = (f, ref) => 1200 * Math.log2(f / ref);
+  const fold = (c) => ((((c + 600) % 1200) + 1200) % 1200) - 600; // 옥타브와 상관없이 -600~+600센트로
+  function intervalText(ref, target) {
+    const d = target - ref;
+    if (d === 0) return '같은 음';
+    return `${INTERVALS[Math.abs(d)]} ${d > 0 ? '위' : '아래'}`;
+  }
+
+  // YIN 방식 음 높이 찾기. 목소리 범위(약 70~1100Hz)만 본다.
+  function detectPitch(buf, sr) {
+    const n = buf.length, W = Math.floor(n / 2);
+    let rms = 0;
+    for (let i = 0; i < n; i++) rms += buf[i] * buf[i];
+    rms = Math.sqrt(rms / n);
+    if (rms < 0.01) return null; // 너무 조용함
+    const tauMin = Math.floor(sr / 1100), tauMax = Math.min(W - 1, Math.floor(sr / 70));
+    const d = new Float32Array(tauMax + 1);
+    for (let tau = 1; tau <= tauMax; tau++) {
+      let s = 0;
+      for (let i = 0; i < W; i++) { const x = buf[i] - buf[i + tau]; s += x * x; }
+      d[tau] = s;
+    }
+    // 누적 평균으로 나눈 차이 함수
+    let run = 0;
+    d[0] = 1;
+    for (let tau = 1; tau <= tauMax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
+    let tau = -1;
+    for (let t = tauMin; t <= tauMax; t++) {
+      if (d[t] < 0.15) { while (t + 1 <= tauMax && d[t + 1] < d[t]) t++; tau = t; break; }
+    }
+    if (tau < 0) return null; // 음 높이가 분명하지 않음 (숨소리, 잡음)
+    let better = tau; // 포물선 보간으로 더 정확하게
+    if (tau > 1 && tau < tauMax) {
+      const a = d[tau - 1], b = d[tau], c = d[tau + 1];
+      const den = a + c - 2 * b;
+      if (den) better = tau + (a - c) / (2 * den);
+    }
+    return { freq: sr / better, clarity: 1 - d[tau], rms };
+  }
+  window.ChoirPitch = { detect: detectPitch }; // 테스트용
+
+  function makeSingQuestion() {
+    let ref, target, key;
+    do {
+      ref = pick(stage.refs);
+      target = ref + pick(stage.iv);
+      key = `${ref},${target}`;
+    } while (key === lastKey && stage.refs.length * stage.iv.length > 1);
+    lastKey = key;
+    return { kind: 'sing', ref, target, notes: [target], frames: [], sung: null, state: 'idle' };
+  }
+
+  async function ensureMic() {
+    if (mic) return mic;
+    ensureAudio();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('이 브라우저는 마이크를 쓸 수 없어요.');
+    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) { /* 무시 */ }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, // 노래 소리를 깎지 않게
+    });
+    if (ctx.state !== 'running') await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    src.connect(an); // 스피커로는 내보내지 않음
+    mic = { stream, src, an, buf: new Float32Array(an.fftSize) };
+    return mic;
+  }
+
+  function stopMic() {
+    stopSing();
+    if (!mic) return;
+    mic.stream.getTracks().forEach((t) => t.stop());
+    try { mic.src.disconnect(); } catch (e) { /* 무시 */ }
+    mic = null;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* 무시 */ }
+  }
+
+  function stopSing() {
+    clearInterval(listenTimer);
+    listenTimer = null;
+    singTimers.forEach(clearTimeout);
+    singTimers = [];
+  }
+
+  function singStatus(text, cls = '') {
+    const el = $('#sing-status');
+    el.textContent = text;
+    el.className = 'sing-status ' + cls;
+  }
+
+  function renderSingTarget() {
+    $('#sing-ref').textContent = `기준음 ${noteName(q.ref)}`;
+    $('#sing-note').textContent = NAMES[q.target % 12];
+    $('#sing-interval').textContent = intervalText(q.ref, q.target);
+  }
+
+  async function beginSing() {
+    if (q.kind !== 'sing' || graded || q.state === 'busy') return;
+    const btn = $('#btn-sing');
+    btn.disabled = true;
+    q.state = 'busy';
+    try {
+      await ensureMic();
+    } catch (e) {
+      q.state = 'idle';
+      btn.disabled = false;
+      singStatus('마이크를 쓸 수 없어요. 아이폰은 설정 → Safari → 마이크에서 "허용"으로 바꾼 뒤 다시 눌러 주세요.', 'bad');
+      return;
+    }
+    stopSing();
+    q.frames = [];
+    q.sung = null;
+    singStatus('👂 기준음을 들어 보세요');
+    const t = ctx.currentTime + 0.1;
+    tone(q.ref, t, 1.2);
+    timeline = [{ start: t, end: t + 1.2, kind: 'ref' }];
+    const wait = (t - ctx.currentTime) + 1.2 + 0.55 + (stage.delay || 0); // 기준음 여운이 마이크에 섞이지 않게 조금 쉬고
+    if (stage.delay) singTimers.push(setTimeout(() => singStatus(`🤫 ${stage.delay}초 동안 속으로 음을 떠올려 보세요`), (wait - stage.delay) * 1000));
+    singTimers.push(setTimeout(startListening, wait * 1000));
+  }
+
+  function startListening() {
+    singStatus(`🎤 지금 "${NAMES[q.target % 12]}"를 불러 보세요 (아— 하고 길게)`, 'live');
+    q.listenStart = ctx.currentTime;
+    q.state = 'listening';
+    const per = Math.round(STABLE_SEC * 1000 / FRAME_MS);
+    listenTimer = setInterval(() => {
+      mic.an.getFloatTimeDomainData(mic.buf);
+      const r = detectPitch(mic.buf, ctx.sampleRate);
+      const tt = ctx.currentTime - q.listenStart;
+      q.frames.push({ t: tt, f: r ? r.freq : null });
+      // 최근 STABLE_SEC 동안 음이 모두 잡혔고, 서로 ±35센트 안이면 '첫 음'
+      const last = q.frames.slice(-per);
+      if (last.length === per && last.every((x) => x.f)) {
+        const fs = last.map((x) => x.f).sort((a, b) => a - b);
+        const med = fs[Math.floor(fs.length / 2)];
+        if (last.every((x) => Math.abs(centsOf(x.f, med)) <= 35)) {
+          q.stable = { from: last[0].t, to: tt, f: med };
+          return gradeSing(med);
+        }
+      }
+      if (tt > LISTEN_SEC) {
+        stopSing();
+        q.state = 'idle';
+        $('#btn-sing').disabled = false;
+        $('#btn-sing').textContent = '🎤 다시 시도';
+        singStatus('소리가 잘 안 잡혔어요. 조금 더 크게, 한 음을 길게 불러 주세요. (이 문제는 점수에 들어가지 않았어요)', 'bad');
+      }
+    }, FRAME_MS);
+  }
+
+  function gradeSing(f) {
+    stopSing();
+    q.state = 'done';
+    q.sung = f;
+    const c = Math.round(fold(centsOf(f, midiFreq(q.target))));
+    q.cents = c;
+    const ok = Math.abs(c) <= stage.tol;
+    graded = true;
+    if (ok) score++;
+    sfx(ok);
+    $('#progress').textContent = `${qIndex} / ${ROUND_LEN} · 맞힘 ${score}`;
+    const sungMidi = Math.round(69 + 12 * Math.log2(f / 440));
+    const sign = c > 0 ? '+' : '';
+    const fb = $('#feedback');
+    fb.className = 'feedback ' + (ok ? 'good' : 'bad');
+    const when = ` · 첫 음까지 ${q.stable.from.toFixed(1)}초`;
+    if (ok) fb.textContent = `정답이에요! ${NAMES[q.target % 12]}에서 ${sign}${c}센트${when}`;
+    else if (Math.abs(c) < 100) fb.textContent = `아깝네요. ${sign}${c}센트, 조금 ${c > 0 ? '높아요' : '낮아요'} (±${stage.tol}센트 안이면 정답)${when}`;
+    else fb.textContent = `"${NAMES[sungMidi % 12]}"에 가까웠어요. 목표보다 ${sign}${c}센트 ${c > 0 ? '높아요' : '낮아요'}${when}`;
+    singStatus('🎹 "정답 음 듣기"로 기준음과 목표 음을 이어서 들어 볼 수 있어요.');
+    $('#btn-sing').hidden = true;
+    $('#btn-replay').hidden = false;
+    $('#btn-next').hidden = false;
+    $('#btn-next').textContent = qIndex >= ROUND_LEN ? '결과 보기' : '다음 문제';
+    $('#btn-next').focus();
+  }
+
+  // 채점 후: 기준음 → 목표 음
+  function playSingAnswer() {
+    ensureAudio();
+    const t = ctx.currentTime + 0.05;
+    tone(q.ref, t, 0.9);
+    tone(q.target, t + 1.1, 1.2);
+    timeline = [{ start: t, end: t + 0.9, kind: 'ref' }];
+    setBusy(2.4);
+  }
+
+  // 음정 그림: 가운데 줄이 목표 음, 위아래로 반음(100센트)마다 줄
+  function drawSing(p, colors) {
+    const W = p.width, H = p.height;
+    const left = 52, right = 12, top = 14, bottom = 28;
+    const RANGE = 450;
+    const mid = top + (H - top - bottom) / 2;
+    const yOf = (c) => mid - (c / RANGE) * ((H - top - bottom) / 2);
+    const xOf = (t) => left + (W - left - right) * Math.min(1, t / LISTEN_SEC);
+    p.background(colors.bg);
+
+    // 정답 범위
+    p.noStroke();
+    const band = p.color(colors.good); band.setAlpha(40);
+    p.fill(band);
+    p.rect(left, yOf(stage.tol), W - left - right, yOf(-stage.tol) - yOf(stage.tol));
+
+    // 반음 줄 + 음 이름
+    p.textSize(11);
+    p.textAlign(p.RIGHT, p.CENTER);
+    for (let k = -4; k <= 4; k++) {
+      const y = yOf(k * 100);
+      p.stroke(k === 0 ? colors.good : colors.line);
+      p.strokeWeight(k === 0 ? 1.5 : 1);
+      if (k !== 0) p.drawingContext.setLineDash([3, 4]);
+      p.line(left, y, W - right, y);
+      p.drawingContext.setLineDash([]);
+      p.noStroke();
+      p.fill(k === 0 ? colors.ink : colors.muted);
+      p.text(NAMES[(((q.target + k) % 12) + 12) % 12], left - 6, y);
+    }
+    p.textAlign(p.CENTER, p.CENTER);
+    p.fill(colors.muted);
+    p.text('시간 →', W / 2, H - 10);
+
+    // 부른 음 (옥타브는 접어서)
+    const ft = midiFreq(q.target);
+    const s = q.stable;
+    q.frames.forEach((fr) => {
+      if (!fr.f) return;
+      const c = fold(centsOf(fr.f, ft));
+      const inStable = graded && s && fr.t >= s.from - 1e-6 && fr.t <= s.to + 1e-6;
+      const col = inStable ? (Math.abs(q.cents) <= stage.tol ? colors.good : colors.bad) : colors.accent;
+      p.noStroke();
+      p.fill(col);
+      const y = yOf(Math.max(-RANGE, Math.min(RANGE, c)));
+      p.circle(xOf(fr.t), y, inStable ? 7 : 5);
+    });
+    if (graded && s) {
+      const y = yOf(Math.max(-RANGE, Math.min(RANGE, q.cents)));
+      p.stroke(Math.abs(q.cents) <= stage.tol ? colors.good : colors.bad);
+      p.strokeWeight(2);
+      p.line(xOf(s.from), y, xOf(s.to), y);
+    }
+    if (q.state === 'listening') { // 지금 시각
+      const x = xOf(ctx.currentTime - q.listenStart);
+      p.stroke(colors.accent);
+      p.strokeWeight(1);
+      p.line(x, top, x, H - bottom);
+    }
+  }
 
   // ---------- 박자 따라 하기 ----------
   // 흐름: 예비박 4번 → 리듬 듣기(메트로놈 작게) → 같은 길이만큼 메트로놈에 맞춰 따라 치기 → 자동 채점
@@ -715,19 +993,22 @@
     lastKey = '';
     $('#game-name').textContent = game.title;
     $('#stage-title').textContent = `${s.id}단계 · ${s.title}`;
-    const isQuality = s.kind === 'quality', isRhythm = s.kind === 'rhythm';
-    $('#keyboard').hidden = isQuality || isRhythm;
-    $('#slots').hidden = isQuality || isRhythm;
+    const isQuality = s.kind === 'quality', isRhythm = s.kind === 'rhythm', isSing = s.kind === 'sing';
+    $('#keyboard').hidden = isQuality || isRhythm || isSing;
+    $('#slots').hidden = isQuality || isRhythm || isSing;
     $('#choices').hidden = !isQuality;
     $('#tap-pad').hidden = !isRhythm;
+    $('#sing-box').hidden = !isSing;
     $('#btn-ref').hidden = s.ref === false;
-    $('#btn-replay').textContent = isRhythm ? '🔁 처음부터 다시' : '🔁 다시 듣기';
+    $('#btn-ref').textContent = isSing ? '🔔 기준음 듣기' : '🔔 기준음 도';
+    $('#btn-replay').textContent = isRhythm ? '🔁 처음부터 다시' : isSing ? '🎹 정답 음 듣기' : '🔁 다시 듣기';
     buildKeyboard();
     show('#screen-game');
     nextQuestion();
   }
 
   function questionHint() {
+    if (q.kind === 'sing') return '🎧 이어폰을 권해요. 기준음이 끝나면 목표 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요(남성 파트는 한 옥타브 낮게).';
     if (q.kind === 'rhythm') return `♩=${stage.bpm} · 예비박 4번 → 리듬 듣기 → 이어지는 메트로놈에 맞춰 버튼으로 따라 치기`;
     if (q.kind === 'quality') return '화음이 어떤 소리로 들리나요? 확인 전까지는 다른 보기를 눌러 바꿀 수 있어요.';
     if (q.kind === 'voice') return `화음 속 ${VOICES[stage.voice].label}을 건반에서 고르세요. 확인 전까지는 바꿀 수 있어요.`;
@@ -746,15 +1027,25 @@
     $('#feedback').textContent = '';
     $('#feedback').className = 'feedback';
     $('#btn-next').hidden = true;
-    $('#btn-check').hidden = q.kind === 'rhythm'; // 박자는 끝나면 자동 채점
-    $('#btn-undo').hidden = q.kind === 'quality' || q.kind === 'rhythm';
+    const auto = q.kind === 'rhythm' || q.kind === 'sing'; // 박자·부르기는 끝나면 자동 채점
+    $('#btn-check').hidden = auto;
+    $('#btn-undo').hidden = auto || q.kind === 'quality';
+    $('#btn-replay').hidden = q.kind === 'sing';
     $('#key-hint').textContent = questionHint();
+    if (q.kind === 'sing') {
+      renderSingTarget();
+      const sb = $('#btn-sing');
+      sb.hidden = false;
+      sb.disabled = false;
+      sb.textContent = mic ? '🎤 다시 시작' : '🎤 시작 (마이크 켜기)';
+      singStatus(mic ? '' : '시작을 누르면 마이크를 켜고 기준음을 들려줘요. 처음 한 번 마이크 "허용"을 눌러 주세요.');
+    }
     renderAnswer();
     playQuestion();
   }
 
   function renderAnswer() {
-    if (q.kind === 'rhythm') return;
+    if (q.kind === 'rhythm' || q.kind === 'sing') return;
     if (q.kind === 'quality') renderChoices();
     else renderSlots();
     $('#btn-check').disabled = answer.length < stage.count;
@@ -834,7 +1125,7 @@
   }
 
   function check() {
-    if (q.kind === 'rhythm' || graded || answer.length < stage.count) return;
+    if (q.kind === 'rhythm' || q.kind === 'sing' || graded || answer.length < stage.count) return;
     graded = true;
     const ok = q.kind === 'quality' ? answer[0] === q.quality : q.notes.every((m, i) => answer[i] === m);
     if (ok) score++;
@@ -969,7 +1260,7 @@
       (mq.addEventListener ? mq.addEventListener('change', readColors) : mq.addListener(readColors));
     }
 
-    const hOf = () => (stage.kind === 'rhythm' ? 190 : stage.black ? 260 : 210); // 반음 단계는 줄이 많아서 더 높게
+    const hOf = () => (stage.kind === 'rhythm' ? 190 : stage.kind === 'sing' ? 240 : stage.black ? 260 : 210); // 반음 단계는 줄이 많아서 더 높게
     new window.p5((p) => {
       const el = $('#viz');
       const width = () => Math.max(200, el.clientWidth);
@@ -987,6 +1278,7 @@
       p.draw = () => {
         if (el.offsetParent === null) return; // 화면에 안 보이면 그리지 않음
         if (q.kind === 'rhythm') return drawRhythm(p, colors);
+        if (q.kind === 'sing') return drawSing(p, colors);
         const W = p.width, H = p.height;
         const left = 44, right = 12, top = 16, bottom = 36;
         const rows = HIGH - LOW;
@@ -1113,11 +1405,12 @@
   function init() {
     renderMenu();
     $('#btn-ref').addEventListener('click', playRef);
-    $('#btn-replay').addEventListener('click', playQuestion);
+    $('#btn-replay').addEventListener('click', () => (q.kind === 'sing' ? playSingAnswer() : playQuestion()));
     $('#btn-undo').addEventListener('click', undo);
     $('#btn-check').addEventListener('click', check);
     $('#btn-next').addEventListener('click', () => { ensureAudio(); nextQuestion(); });
-    $('#btn-menu').addEventListener('click', () => { stopRhythm(); renderMenu(); show('#screen-menu'); });
+    $('#btn-menu').addEventListener('click', () => { stopRhythm(); stopMic(); renderMenu(); show('#screen-menu'); });
+    $('#btn-sing').addEventListener('click', beginSing);
     renderSfxButton();
     $('#btn-sfx').addEventListener('click', () => {
       progress.sfx = !progress.sfx;
@@ -1127,7 +1420,7 @@
     });
     $('#sum-retry').addEventListener('click', () => startStage(game, stage));
     $('#sum-next').addEventListener('click', () => startStage(game, game.stages[stage.id]));
-    $('#sum-menu').addEventListener('click', () => show('#screen-menu'));
+    $('#sum-menu').addEventListener('click', () => { stopMic(); show('#screen-menu'); });
     $('#btn-reset').addEventListener('click', () => {
       if (!confirm('모든 게임의 단계 진행 기록을 지울까요?')) return;
       progress = { games: freshGames(), sfx: progress.sfx, latency: progress.latency };
@@ -1141,7 +1434,7 @@
       if (e.target && e.target.classList && (e.target.classList.contains('key') || e.target.classList.contains('choice'))) return;
       if (e.key === 'Enter') { e.preventDefault(); graded ? $('#btn-next').click() : check(); }
       else if (e.key === 'Backspace') { e.preventDefault(); undo(); }
-      else if (e.key === 'r' || e.key === 'R') { if (!$('#btn-replay').disabled) playQuestion(); }
+      else if (e.key === 'r' || e.key === 'R') { if (!$('#btn-replay').disabled && !$('#btn-replay').hidden) $('#btn-replay').click(); }
       else if (e.key === ' ' && q.kind === 'rhythm') { e.preventDefault(); onTap(); }
     });
 
