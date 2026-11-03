@@ -951,7 +951,8 @@
     GAMES.forEach((g, gi) => {
       const sec = document.createElement('section');
       sec.className = 'game-block';
-      sec.innerHTML = `<h2>${GAME_ICONS[g.id]} ${g.title}</h2><p class="muted small">${g.desc}</p>`;
+      // 게임 제목+설명은 스크롤할 때 화면 위에 붙어 있다가 다음 게임 제목이 밀어 올림 (sticky header)
+      sec.innerHTML = `<div class="game-head"><h2>${GAME_ICONS[g.id]} ${g.title}</h2><p class="muted small">${g.desc}</p></div>`;
       if (g.id === 'rhythm') {
         const cb = document.createElement('button');
         cb.className = 'stage-btn calib-btn';
@@ -1401,8 +1402,32 @@
     });
   }
 
+  // ---------- 새 버전 자동 반영 ----------
+  // 주소는 항상 https://love540.github.io/choir-pitch-game 하나. 배포할 때 APP_VERSION, version.json,
+  // html의 ?v= 숫자를 함께 올리면, 열려 있던 페이지도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀐다.
+  const APP_VERSION = 9;
+  async function checkForUpdate() {
+    if (location.protocol === 'file:') return; // 로컬 버전은 확인하지 않음
+    try {
+      const r = await fetch('version.json', { cache: 'no-store' });
+      const { version } = await r.json();
+      if (!(version > APP_VERSION)) return;
+      const key = 'choir-pitch-game:reloaded';
+      if (sessionStorage.getItem(key) === String(version)) return; // 같은 버전으로 두 번 새로고침하지 않음
+      sessionStorage.setItem(key, String(version));
+      await fetch(location.pathname, { cache: 'reload' }); // 사파리가 붙잡고 있는 예전 페이지를 새것으로 바꿔 둠
+      location.reload();
+    } catch (e) { /* 인터넷이 없거나 실패하면 그냥 지금 버전으로 */ }
+  }
+  function cleanUrl() { // 예전에 받은 ?v=7 같은 링크는 원래 주소로 정리
+    try { if (/[?&]v=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* 무시 */ }
+  }
+
   // ---------- 연결 ----------
   function init() {
+    cleanUrl();
+    checkForUpdate();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
     renderMenu();
     $('#btn-ref').addEventListener('click', playRef);
     $('#btn-replay').addEventListener('click', () => (q.kind === 'sing' ? playSingAnswer() : playQuestion()));

@@ -103,6 +103,12 @@ Jay가 활동하는 아마추어 합창단 단원들이 휴대폰 브라우저�
 
 웹에 올리려면 GitHub Pages(저장소 Settings → Pages → `main` 브랜치)를 켜면 `index.html`이 바로 열립니다.
 
+**주소는 항상 https://love540.github.io/choir-pitch-game 하나만 씁니다.** 새 버전을 배포할 때는 아래 세 곳의 숫자를 함께 올립니다. 그러면 이미 열어 둔 휴대폰에서도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀝니다(사파리 캐시 대비).
+
+- `version.json`의 `version`
+- `game.js`의 `APP_VERSION`
+- `index.html`, `local.html`의 `?v=` 숫자
+
 ### 사용 안내 (단원용)
 
 - 🎧 **이어폰 착용**을 권장합니다.
