@@ -113,38 +113,92 @@
     setBusy(1.1);
   }
 
-  // 효과음: 문제 음역(도~높은 도)과 겹치지 않게, 짧고 작게
-  function blip(freq, t, dur, type, peak, lpHz) {
-    const o = ctx.createOscillator();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = lpHz;
-    const g = ctx.createGain();
+  // ---------- 효과음 ----------
+  // 문제 음역(도~높은 도)과 겹치지 않게: 정답은 음높이 없는 폭죽 소리, 오답은 그보다 낮은 한숨 소리.
+  // ac(오디오 컨텍스트)와 out(출력)을 받아서, 미리 듣기 파일을 만들 때도 같은 코드를 쓴다.
+  const noiseBufs = new WeakMap();
+  function noiseBuf(ac) {
+    let b = noiseBufs.get(ac);
+    if (!b) {
+      b = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      noiseBufs.set(ac, b);
+    }
+    return b;
+  }
+
+  // 잡음 한 조각: 필터 주파수를 f0 → f1로 움직이며 peak까지 올랐다가 사라짐
+  function noiseHit(ac, out, t, { dur, type, f0, f1 = f0, q = 1, peak, attack = 0.004 }) {
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf(ac);
+    const f = ac.createBiquadFilter();
+    f.type = type;
+    f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(peak, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(lp); lp.connect(g); g.connect(master);
+    src.connect(f); f.connect(g); g.connect(out);
+    src.start(t, Math.random() * 0.5);
+    src.stop(t + dur + 0.02);
+  }
+
+  function osc(ac, out, t, { dur, type, f0, f1 = f0, glide = dur, peak, attack = 0.01, lp = 8000, vib = 0 }) {
+    const o = ac.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + glide);
+    if (vib) { // 살짝 떨리는 목소리 느낌
+      const l = ac.createOscillator(), lg = ac.createGain();
+      l.frequency.value = 5.5; lg.gain.value = vib;
+      l.connect(lg); lg.connect(o.frequency);
+      l.start(t); l.stop(t + dur + 0.05);
+    }
+    const fl = ac.createBiquadFilter();
+    fl.type = 'lowpass';
+    fl.frequency.value = lp;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + attack);
+    g.gain.setValueAtTime(peak, t + Math.max(attack, dur * 0.45));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(fl); fl.connect(g); g.connect(out);
     o.start(t);
     o.stop(t + dur + 0.05);
   }
 
+  function scheduleSfx(ac, out, ok, t) {
+    if (ok) {
+      // 정답: 작은 폭죽 — 슝~ 올라가고, 펑, 타닥타닥 반짝
+      noiseHit(ac, out, t, { dur: 0.28, type: 'bandpass', f0: 700, f1: 5000, q: 4, peak: 0.07, attack: 0.2 });
+      const pop = t + 0.27;
+      noiseHit(ac, out, pop, { dur: 0.18, type: 'lowpass', f0: 2500, f1: 400, peak: 0.32, attack: 0.003 });
+      osc(ac, out, pop, { dur: 0.14, type: 'sine', f0: 140, f1: 55, peak: 0.22, attack: 0.003, lp: 400 });
+      for (let i = 0; i < 12; i++) { // 반짝이는 불꽃 (타닥타닥)
+        const ct = pop + 0.08 + Math.random() * 0.55;
+        const fade = 1 - (ct - pop) / 0.8;
+        noiseHit(ac, out, ct, { dur: 0.025 + Math.random() * 0.03, type: 'highpass', f0: 3500 + Math.random() * 3000, peak: (0.05 + Math.random() * 0.06) * fade, attack: 0.002 });
+      }
+      for (let i = 0; i < 4; i++) { // 높고 작은 반짝임
+        const ct = pop + 0.1 + Math.random() * 0.45;
+        osc(ac, out, ct, { dur: 0.12, type: 'sine', f0: 3000 + Math.random() * 2500, peak: 0.025, attack: 0.003 });
+      }
+    } else {
+      // 오답: "어~ 어…" 하고 아쉽게 내려가는 한숨 (문제 음역보다 낮게)
+      osc(ac, out, t, { dur: 0.2, type: 'triangle', f0: 233, f1: 220, peak: 0.2, attack: 0.03, lp: 1200 });
+      osc(ac, out, t + 0.22, { dur: 0.6, type: 'triangle', f0: 220, f1: 147, glide: 0.5, peak: 0.2, attack: 0.04, lp: 1000, vib: 3 });
+      noiseHit(ac, out, t + 0.22, { dur: 0.5, type: 'bandpass', f0: 900, f1: 500, q: 1.5, peak: 0.015, attack: 0.08 }); // 숨소리
+    }
+  }
+  window.ChoirSfx = { schedule: scheduleSfx }; // 미리 듣기 파일 만들 때 사용
+
   function sfx(ok) {
     if (!progress.sfx) return;
     ensureAudio();
-    const t = ctx.currentTime + 0.02;
-    if (ok) {
-      // 정답: 맑게 올라가는 두 음 (높은 솔 → 높은 도, 두 옥타브 위 음역)
-      blip(1568, t, 0.18, 'sine', 0.22, 8000);
-      blip(1568 * 2, t, 0.12, 'sine', 0.04, 8000);       // 반짝이는 배음
-      blip(2093, t + 0.09, 0.4, 'sine', 0.25, 8000);
-      blip(2093 * 2, t + 0.09, 0.25, 'sine', 0.05, 8000);
-    } else {
-      // 오답: 낮고 둔하게 내려가는 두 음
-      blip(196, t, 0.16, 'square', 0.12, 700);
-      blip(165, t + 0.15, 0.3, 'square', 0.12, 600);
-    }
+    scheduleSfx(ctx, master, ok, ctx.currentTime + 0.02);
   }
 
   function renderSfxButton() {
