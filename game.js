@@ -209,9 +209,8 @@
     $('#btn-check').hidden = false;
     $('#btn-undo').hidden = false;
     $('#key-hint').textContent = stage.count > 1
-      ? `들은 순서대로 ${stage.count}개 음을 누르세요. 답하는 동안 건반 소리는 나지 않아요.`
-      : '들은 음을 누르세요. 답하는 동안 건반 소리는 나지 않아요.';
-    clearKeyMarks();
+      ? `들은 순서대로 ${stage.count}개 음을 누르세요. 다 고른 뒤 다른 건반을 누르면 마지막 음이 바뀌어요.`
+      : '들은 음을 누르세요. 확인 전까지는 다른 건반을 눌러 바꿀 수 있어요.';
     renderSlots();
     playSequence(true);
   }
@@ -240,6 +239,7 @@
     }
     $('#btn-check').disabled = answer.length < stage.count;
     $('#btn-undo').disabled = answer.length === 0;
+    renderKeyMarks();
   }
 
   function onKey(m) {
@@ -248,8 +248,8 @@
       flashKey(m);
       return;
     }
-    if (answer.length >= stage.count) return;
-    answer.push(m);
+    if (answer.length >= stage.count) answer[answer.length - 1] = m; // 다 고른 뒤에는 마지막 음을 바꿈
+    else answer.push(m);
     flashKey(m);
     renderSlots();
   }
@@ -274,7 +274,6 @@
     $('#btn-next').hidden = false;
     $('#btn-next').textContent = qIndex >= ROUND_LEN ? '결과 보기' : '다음 문제';
     $('#key-hint').textContent = '이제 건반을 눌러 소리를 비교해 볼 수 있어요.';
-    q.notes.forEach((m) => keyEl(m) && keyEl(m).classList.add('answer'));
     renderSlots();
     $('#btn-next').focus();
   }
@@ -352,8 +351,16 @@
     setTimeout(() => b.classList.remove('pressed'), 180);
   }
 
-  function clearKeyMarks() {
-    keyMap.forEach((b) => b.classList.remove('answer', 'pressed'));
+  // 건반 아래 색 막대: 고른 음 파랑, 채점 후 정답 녹색, 틀리게 고른 음 빨강
+  function renderKeyMarks() {
+    keyMap.forEach((b) => b.classList.remove('selected', 'answer', 'wrong'));
+    const mark = (m, cls) => keyEl(m) && keyEl(m).classList.add(cls);
+    if (!graded) {
+      answer.forEach((m) => mark(m, 'selected'));
+      return;
+    }
+    answer.forEach((m, i) => { if (m !== q.notes[i]) mark(m, 'wrong'); });
+    q.notes.forEach((m) => { keyEl(m) && keyEl(m).classList.remove('wrong'); mark(m, 'answer'); });
   }
 
   // ---------- 음 계단 그림 (p5) ----------
