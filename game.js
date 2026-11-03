@@ -951,7 +951,8 @@
     GAMES.forEach((g, gi) => {
       const sec = document.createElement('section');
       sec.className = 'game-block';
-      sec.innerHTML = `<h2>${GAME_ICONS[g.id]} ${g.title}</h2><p class="muted small">${g.desc}</p>`;
+      // 게임 제목+설명은 스크롤할 때 화면 위에 붙어 있다가 다음 게임 제목이 밀어 올림 (sticky header)
+      sec.innerHTML = `<div class="game-head"><h2>${GAME_ICONS[g.id]} ${g.title}</h2><p class="muted small">${g.desc}</p></div>`;
       if (g.id === 'rhythm') {
         const cb = document.createElement('button');
         cb.className = 'stage-btn calib-btn';
