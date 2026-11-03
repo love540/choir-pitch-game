@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>합창단 청음 연습</title>
-  <meta name="description" content="합창단 청음 연습: 기준음 청음과 화음 청음을 단계별로 연습해 보세요.">
-  <link rel="stylesheet" href="style.css?v=5">
+  <meta name="description" content="합창단 청음 연습: 기준음 청음, 화음 청음, 박자 따라 하기를 단계별로 연습해 보세요.">
+  <link rel="stylesheet" href="style.css?v=6">
   <!-- 로컬 버전: 함께 들어 있는 lib/p5.min.js를 씁니다(인터넷 불필요) -->
   <script src="lib/p5.min.js" defer></script>
-  <script src="game.js?v=5" defer></script>
+  <script src="game.js?v=6" defer></script>
 </head>
 <body>
 <main>
@@ -42,6 +42,7 @@
     <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
 
     <div class="choices" id="choices" hidden></div>
+    <button class="tap-pad" id="tap-pad" hidden aria-label="박자 맞춰 누르기 (스페이스 키도 됨)"></button>
     <div class="keyboard" id="keyboard"></div>
     <p class="muted small center" id="key-hint"></p>
 
@@ -49,6 +50,22 @@
       <button id="btn-undo">⌫ 지우기</button>
       <button class="primary" id="btn-check">확인</button>
       <button class="primary" id="btn-next" hidden>다음 문제</button>
+    </div>
+  </section>
+
+  <!-- 이어폰 지연 맞추기 -->
+  <section id="screen-calib" hidden>
+    <div class="topbar">
+      <button class="link" id="calib-back">← 단계 목록</button>
+    </div>
+    <p class="game-name">박자 따라 하기</p>
+    <h2>⏱ 이어폰 지연 맞추기</h2>
+    <p class="muted">실제로 연습할 때 쓰는 이어폰을 끼고, <b>딸깍 소리가 귀에 들리는 순간</b>에 맞춰 아래 버튼을 눌러 주세요. 12번 울립니다.</p>
+    <p class="hint">블루투스 이어폰은 소리가 0.1~0.3초 늦게 들려요. 이 지연을 재서 박자 채점에서 빼 줍니다. 이어폰을 바꾸면 다시 해 주세요.</p>
+    <button class="tap-pad" id="calib-pad" aria-label="딸깍 소리에 맞춰 누르기"></button>
+    <p class="feedback" id="calib-result" role="status" aria-live="polite"></p>
+    <div class="row">
+      <button class="primary" id="calib-start">시작</button>
     </div>
   </section>
 
