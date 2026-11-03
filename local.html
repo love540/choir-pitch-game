@@ -3,21 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>기준음 청음 게임</title>
-  <meta name="description" content="합창단 청음 연습: 기준음 도를 듣고 문제 음을 맞혀 보세요.">
-  <link rel="stylesheet" href="style.css?v=3">
+  <title>합창단 청음 연습</title>
+  <meta name="description" content="합창단 청음 연습: 기준음 청음과 화음 청음을 단계별로 연습해 보세요.">
+  <link rel="stylesheet" href="style.css?v=5">
   <!-- 로컬 버전: 함께 들어 있는 lib/p5.min.js를 씁니다(인터넷 불필요) -->
   <script src="lib/p5.min.js" defer></script>
-  <script src="game.js?v=3" defer></script>
+  <script src="game.js?v=5" defer></script>
 </head>
 <body>
 <main>
   <!-- 단계 선택 -->
   <section id="screen-menu">
-    <h1>기준음 청음 게임</h1>
-    <p class="muted">기준음 <b>도</b>를 먼저 들려준 뒤 문제 음을 들려줍니다. 어떤 음인지 건반에서 골라 보세요. 한 판에 10문제이고, 8문제 이상 맞히면 다음 단계가 열립니다.</p>
+    <h1>합창단 청음 연습</h1>
+    <p class="muted">게임을 골라 단계별로 연습해 보세요. 한 판에 10문제이고, 8문제 이상 맞히면 다음 단계가 열립니다.</p>
     <p class="hint">🎧 이어폰을 끼면 더 잘 들려요. 아이폰에서 소리가 안 나면 무음 모드를 끄고 볼륨을 올려 주세요.</p>
-    <ul class="stages" id="stage-list"></ul>
+    <div id="game-list"></div>
     <p class="center"><button class="link small" id="btn-reset">진행 기록 지우기</button></p>
   </section>
 
@@ -28,6 +28,7 @@
       <button class="link small" id="btn-sfx" aria-pressed="true">🔔 효과음 켬</button>
       <span class="progress" id="progress"></span>
     </div>
+    <p class="game-name" id="game-name"></p>
     <h2 id="stage-title"></h2>
 
     <div id="viz" aria-hidden="true"></div>
@@ -40,6 +41,7 @@
     <div class="slots" id="slots" aria-live="polite"></div>
     <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
 
+    <div class="choices" id="choices" hidden></div>
     <div class="keyboard" id="keyboard"></div>
     <p class="muted small center" id="key-hint"></p>
 
