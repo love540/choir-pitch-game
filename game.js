@@ -86,9 +86,9 @@
   GAMES[1].stages.forEach((s) => { s.count = 1; s.black = true; });
   // 화음 속 한 음 부르기 (마이크): 화음만 듣고, 고른 성부의 음을 불러요
   GAMES[1].stages.push(
-    { id: 7, kind: 'sing', chordSing: true, voice: 'bass', title: '🎤 베이스 음 부르기', desc: '화음만 듣고 가장 낮은 음을 불러요 · ±50센트', types: ['maj', 'min'], inv: false, tol: 50, count: 0, black: false },
-    { id: 8, kind: 'sing', chordSing: true, voice: 'top', title: '🎤 소프라노 음 부르기', desc: '화음만 듣고 가장 높은 음을 불러요 · ±50센트', types: ['maj', 'min'], inv: false, tol: 50, count: 0, black: false },
-    { id: 9, kind: 'sing', chordSing: true, voice: 'mid', title: '🎤 가운데 음 부르기', desc: '자리바꿈 화음에서 알토처럼 가운데 음 · ±50센트', types: ['maj', 'min'], inv: true, tol: 50, count: 0, black: false },
+    { id: 7, kind: 'sing', chordSing: true, voice: 'bass', title: '베이스 음 부르기', desc: '화음만 듣고 가장 낮은 음을 불러요 · ±50센트', types: ['maj', 'min'], inv: false, tol: 50, count: 0, black: false },
+    { id: 8, kind: 'sing', chordSing: true, voice: 'top', title: '소프라노 음 부르기', desc: '화음만 듣고 가장 높은 음을 불러요 · ±50센트', types: ['maj', 'min'], inv: false, tol: 50, count: 0, black: false },
+    { id: 9, kind: 'sing', chordSing: true, voice: 'mid', title: '가운데 음 부르기', desc: '자리바꿈 화음에서 알토처럼 가운데 음 · ±50센트', types: ['maj', 'min'], inv: true, tol: 50, count: 0, black: false },
   );
   GAMES[2].stages.forEach((s) => { s.count = 0; s.black = false; s.ref = false; });
   const SING_REFS = [57, 59, 60, 62, 64, 65, 67]; // 라3 ~ 솔4
@@ -105,7 +105,6 @@
     ],
   });
   GAMES[3].stages.forEach((s) => { s.count = 0; s.black = false; });
-  const GAME_ICONS = { pitch: '🎯', chord: '🎶', rhythm: '🥁', firstnote: '🎤' };
   const ROUND_LEN = 10;
   const PASS = 8;
 
@@ -320,7 +319,7 @@
 
   function renderSfxButton() {
     const b = $('#btn-sfx');
-    b.textContent = progress.sfx ? '🔔 효과음 켬' : '🔕 효과음 끔';
+    b.textContent = progress.sfx ? '효과음 켬' : '효과음 끔';
     b.setAttribute('aria-pressed', String(progress.sfx));
   }
 
@@ -570,21 +569,21 @@
     const t = ctx.currentTime + 0.1;
     let dur = 1.2;
     if (q.chordSing) { // 화음: 2초 동안 울림
-      singStatus(`👂 화음을 들어 보세요. ${VOICES[stage.voice].label}을 찾아요`);
+      singStatus(`화음을 들어 보세요. ${VOICES[stage.voice].label}을 찾아요`);
       dur = 2.0;
       chordTone(q.chord, t, dur);
     } else {
-      singStatus('👂 기준음을 들어 보세요');
+      singStatus('기준음을 들어 보세요');
       tone(q.ref, t, dur);
     }
     timeline = [{ start: t, end: t + dur, kind: 'ref' }];
     const wait = (t - ctx.currentTime) + dur + 0.55 + (stage.delay || 0); // 소리 여운이 마이크에 섞이지 않게 조금 쉬고
-    if (stage.delay) singTimers.push(setTimeout(() => singStatus(`🤫 ${stage.delay}초 동안 속으로 음을 떠올려 보세요`), (wait - stage.delay) * 1000));
+    if (stage.delay) singTimers.push(setTimeout(() => singStatus(`${stage.delay}초 동안 속으로 음을 떠올려 보세요`), (wait - stage.delay) * 1000));
     singTimers.push(setTimeout(startListening, wait * 1000));
   }
 
   function startListening() {
-    singStatus(q.chordSing ? `🎤 지금 ${VOICES[stage.voice].label}을 불러 보세요 (아— 하고 길게)` : `🎤 지금 "${NAMES[q.target % 12]}"를 불러 보세요 (아— 하고 길게)`, 'live');
+    singStatus(q.chordSing ? `지금 ${VOICES[stage.voice].label}을 불러 보세요 (아— 하고 길게)` : `지금 "${NAMES[q.target % 12]}"를 불러 보세요 (아— 하고 길게)`, 'live');
     q.listenStart = ctx.currentTime;
     q.state = 'listening';
     const per = Math.round(STABLE_SEC * 1000 / FRAME_MS);
@@ -607,7 +606,7 @@
         stopSing();
         q.state = 'idle';
         $('#btn-sing').disabled = false;
-        $('#btn-sing').textContent = '🎤 다시 시도';
+        $('#btn-sing').textContent = '다시 시도';
         singStatus('소리가 잘 안 잡혔어요. 조금 더 크게, 한 음을 길게 불러 주세요. (이 문제는 점수에 들어가지 않았어요)', 'bad');
       }
     }, FRAME_MS);
@@ -627,7 +626,7 @@
     const sungMidi = Math.round(69 + 12 * Math.log2(f / 440));
     const sign = c > 0 ? '+' : '';
     const fb = $('#feedback');
-    fb.className = 'feedback ' + (ok ? 'good' : 'bad');
+    fb.className = 'feedback ' + (ok ? 'good' : Math.abs(c) < 100 ? 'warn' : 'bad'); // 아깝게 틀리면 주황
     const when = ` · 첫 음까지 ${q.stable.from.toFixed(1)}초`;
     if (ok) fb.textContent = `정답이에요! ${NAMES[q.target % 12]}에서 ${sign}${c}센트${when}`;
     else if (Math.abs(c) < 100) fb.textContent = `아깝네요. ${sign}${c}센트, 조금 ${c > 0 ? '높아요' : '낮아요'} (±${stage.tol}센트 안이면 정답)${when}`;
@@ -640,7 +639,7 @@
         : `"${NAMES[sungMidi % 12]}"에 가까웠어요. 목표보다 ${sign}${c}센트 ${c > 0 ? '높아요' : '낮아요'}${when}`;
     }
     if (q.chordSing) renderSingTarget(); // 채점 후 화음과 정답 음 공개
-    singStatus(q.chordSing ? '🎹 "정답 음 듣기"로 화음과 찾을 음을 이어서 들어 볼 수 있어요.' : '🎹 "정답 음 듣기"로 기준음과 목표 음을 이어서 들어 볼 수 있어요.');
+    singStatus(q.chordSing ? '"정답 음 듣기"로 화음과 찾을 음을 이어서 들어 볼 수 있어요.' : '"정답 음 듣기"로 기준음과 목표 음을 이어서 들어 볼 수 있어요.');
     $('#btn-sing').hidden = true;
     $('#btn-replay').hidden = false;
     $('#btn-next').hidden = false;
@@ -776,7 +775,7 @@
     const pad = $('#tap-pad');
     pad.classList.remove('idle', 'count', 'listen', 'play', 'done');
     pad.classList.add(state);
-    const phase = { idle: '▶ 위의 "시작하기"를 누르세요', count: '예비박', listen: '👂 듣기 · 아직 누르지 마세요', play: '👆 지금 이 버튼을 누르세요!', done: '채점 끝' }[state];
+    const phase = { idle: '위의 "시작하기"를 누르세요', count: '예비박', listen: '듣기 · 아직 누르지 마세요', play: '지금 이 버튼을 누르세요!', done: '채점 끝' }[state];
     const sub = opts.sub || { idle: '예비박 4번 → 리듬 듣기 → 이 버튼으로 같은 리듬 치기', count: '곧 리듬이 나와요', listen: '리듬을 기억하세요. 끝나면 이 버튼을 누를 차례예요', play: '들은 리듬을 메트로놈에 맞춰 손가락으로 톡톡', done: '"다시 해 보기"로 연습하거나 "다음 문제"로 넘어가요' }[state];
     // 안의 요소를 새로 만들지 않고 글자와 표시만 바꾼다.
     // (박에 맞춰 누르는 순간 요소를 다시 만들면 아이폰 사파리에서 그 누름이 버튼에 전달되지 않음)
@@ -808,7 +807,7 @@
         const b = Math.floor((now - T.play) / T.spb);
         beat = b % 4;
         const n = q.taps.filter((t) => t >= T.play - 0.2).length;
-        sub = (two ? `${Math.floor(b / 4) + 1}마디째 · ` : '') + (n ? `👍 ${n}번 눌렀어요` : '들은 리듬을 메트로놈에 맞춰 손가락으로 톡톡');
+        sub = (two ? `${Math.floor(b / 4) + 1}마디째 · ` : '') + (n ? `${n}번 눌렀어요` : '들은 리듬을 메트로놈에 맞춰 손가락으로 톡톡');
       } else {
         return; // 따라 치기가 끝나면 채점이 상태를 바꿈
       }
@@ -1004,10 +1003,10 @@
 
     // 아래: 치기 전에는 진행 안내, 채점 후에는 범례
     if (!graded) {
-      const phase = !T ? '▶ 시작하기를 누르면 시작해요'
+      const phase = !T ? '시작하기를 누르면 시작해요'
         : now < T.listen ? '예비박 4번 → 듣기 → 따라 치기'
-        : now < T.play ? '👂 듣기: 위 줄 · 아직 누르지 마세요'
-        : now < T.end ? '👆 따라 치기: 아래 줄 · 큰 버튼을 누르세요' : '채점 중…';
+        : now < T.play ? '듣기: 위 줄 · 아직 누르지 마세요'
+        : now < T.end ? '따라 치기: 아래 줄 · 큰 버튼을 누르세요' : '채점 중…';
       p.noStroke();
       p.fill(T && now >= T.play && now < T.end ? colors.accent : colors.muted);
       p.textAlign(p.CENTER, p.CENTER);
@@ -1133,7 +1132,7 @@
     $('#calib-result').textContent = '';
     const pad = $('#calib-pad');
     pad.className = 'tap-pad play';
-    pad.textContent = '👏 딸깍 소리에 맞춰 누르세요';
+    pad.textContent = '딸깍 소리에 맞춰 누르세요';
     later(t0 + n * spb - ctx.currentTime + 0.5, finishCalib);
   }
 
@@ -1189,9 +1188,9 @@
   function updateReplayButton() {
     const b = $('#btn-replay');
     b.classList.toggle('primary', !roundStarted);
-    b.textContent = !roundStarted ? '▶ 시작하기'
-      : stage.kind === 'rhythm' ? (graded ? '🔁 다시 해 보기 (연습)' : '🔁 처음부터 다시')
-      : stage.kind === 'sing' ? '🎹 정답 음 듣기' : '🔁 다시 듣기';
+    b.textContent = !roundStarted ? '시작하기'
+      : stage.kind === 'rhythm' ? (graded ? '다시 해 보기 (연습)' : '처음부터 다시')
+      : stage.kind === 'sing' ? '정답 음 듣기' : '다시 듣기';
   }
 
   function show(id) {
@@ -1202,6 +1201,7 @@
     window.scrollTo(0, id === '#screen-menu' ? menuScrollY : 0);
   }
 
+  const LOCK_SVG = '<svg viewBox="0 0 16 16" width="14" height="14" aria-label="잠김"><path fill="currentColor" d="M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2z"/></svg>';
   function renderMenu() {
     const box = $('#game-list');
     box.innerHTML = '';
@@ -1209,13 +1209,13 @@
       const sec = document.createElement('section');
       sec.className = 'game-block';
       // 게임 제목+설명은 스크롤할 때 화면 위에 붙어 있다가 다음 게임 제목이 밀어 올림 (sticky header)
-      sec.innerHTML = `<div class="game-head"><h2>${GAME_ICONS[g.id]} ${g.title}</h2><p class="muted small">${g.desc}</p></div>`;
+      sec.innerHTML = `<div class="game-head"><h2>${g.title}</h2><p class="muted small">${g.desc}</p></div>`;
       if (g.id === 'rhythm') {
         // 단계가 아니라 시작 전 '사전 설정'이라서 모양을 다르게
         const cb = document.createElement('button');
         const lat = progress.latency;
         cb.className = 'setup-row calib-btn' + (lat == null ? ' needed' : '');
-        cb.innerHTML = '<span class="setup-tag">⚙️ 사전 설정</span>' +
+        cb.innerHTML = '<span class="setup-tag">사전 설정</span>' +
           '<span class="setup-main"><span class="setup-title">이어폰 지연 맞추기</span>' +
           `<span class="setup-meta">${lat == null ? '시작 전에 한 번 해 주세요' : '이어폰을 바꾸면 다시 해 주세요'}</span></span>` +
           `<span class="setup-val">${lat == null ? '안 함' : `${Math.round(lat * 1000)}ms`} ›</span>`;
@@ -1233,8 +1233,8 @@
         b.className = 'stage-btn' + (locked ? ' locked' : '');
         b.disabled = locked;
         b.innerHTML =
-          `<span class="stage-num">${locked ? '🔒' : s.id}</span>` +
-          `<span class="stage-text"><span class="stage-title">${s.title}</span>` +
+          `<span class="stage-num">${locked ? LOCK_SVG : s.id}</span>` +
+          `<span class="stage-text"><span class="stage-title">${s.title}${s.kind === 'sing' && s.chordSing ? '<span class="tag">부르기</span>' : ''}</span>` +
           `<span class="stage-meta">${s.desc}${best != null ? ` · 최고 ${best}/${ROUND_LEN}` : ''}</span></span>`;
         b.addEventListener('click', () => startStage(g, s));
         li.appendChild(b);
@@ -1263,7 +1263,7 @@
     $('#pad-calib').hidden = !(isRhythm && progress.latency == null);
     $('#sing-box').hidden = !isSing;
     $('#btn-ref').hidden = s.ref === false;
-    $('#btn-ref').textContent = s.chordSing ? '🎶 화음 듣기' : isSing ? '🔔 기준음 듣기' : '🔔 기준음 도';
+    $('#btn-ref').textContent = s.chordSing ? '화음 듣기' : isSing ? '기준음 듣기' : '기준음 도';
     updateReplayButton();
     buildKeyboard();
     show('#screen-game');
@@ -1271,9 +1271,9 @@
   }
 
   function questionHint() {
-    if (q.chordSing) return '🎧 이어폰을 권해요. 화음이 끝나면 찾은 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요.';
-    if (q.kind === 'sing') return '🎧 이어폰을 권해요. 기준음이 끝나면 목표 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요(남성 파트는 한 옥타브 낮게).';
-    if (q.kind === 'rhythm') return `♩=${stage.bpm} · 예비박 4번 → 리듬 듣기 → "👆 지금 이 버튼을 누르세요!"가 나오면 아래 큰 버튼을 리듬대로 누르기` + (progress.latency == null ? ' · 블루투스 이어폰이면 단계 목록의 ⚙️ 이어폰 지연 맞추기를 먼저 해 주세요' : '');
+    if (q.chordSing) return '이어폰을 권해요. 화음이 끝나면 찾은 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요.';
+    if (q.kind === 'sing') return '이어폰을 권해요. 기준음이 끝나면 목표 음을 "아—" 하고 길게 불러 주세요. 편한 옥타브로 불러도 돼요(남성 파트는 한 옥타브 낮게).';
+    if (q.kind === 'rhythm') return `♩=${stage.bpm} · 예비박 4번 → 리듬 듣기 → "지금 이 버튼을 누르세요!"가 나오면 아래 큰 버튼을 리듬대로 누르기` + (progress.latency == null ? ' · 블루투스 이어폰이면 단계 목록의 이어폰 지연 맞추기를 먼저 해 주세요' : '');
     if (q.kind === 'quality') return '화음이 어떤 소리로 들리나요? 확인 전까지는 다른 보기를 눌러 바꿀 수 있어요.';
     if (q.kind === 'voice') return `화음 속 ${VOICES[stage.voice].label}을 건반에서 고르세요. 확인 전까지는 바꿀 수 있어요.`;
     return stage.count > 1
@@ -1302,7 +1302,7 @@
       const sb = $('#btn-sing');
       sb.hidden = false;
       sb.disabled = false;
-      sb.textContent = mic ? '🎤 다시 시작' : '🎤 시작 (마이크 켜기)';
+      sb.textContent = mic ? '다시 시작' : '시작 (마이크 켜기)';
       singStatus(mic ? '' : '시작을 누르면 마이크를 켜고 기준음을 들려줘요. 처음 한 번 마이크 "허용"을 눌러 주세요.');
     }
     renderAnswer();
@@ -1670,7 +1670,7 @@
   // ---------- 새 버전 자동 반영 ----------
   // 주소는 항상 https://love540.github.io/choir-pitch-game 하나. 배포할 때 APP_VERSION, version.json,
   // html의 ?v= 숫자를 함께 올리면, 열려 있던 페이지도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀐다.
-  const APP_VERSION = 16;
+  const APP_VERSION = 18;
   async function checkForUpdate() {
     if (location.protocol === 'file:') return; // 로컬 버전은 확인하지 않음
     try {

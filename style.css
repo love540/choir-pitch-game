@@ -372,3 +372,98 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .tap-pad.hit .pad-beats i { border-color: var(--accent-ink); color: var(--accent-ink); }
 .tap-pad.hit .pad-beats i.on { background: var(--accent-ink); border-color: var(--accent-ink); color: var(--accent); }
 .credit { margin-top: 4px; } .credit a { color: inherit; }
+
+/* ===== 리퀴드 글라스: 위에 떠 있는 막대들 (게임 위쪽 막대, 아래 버튼 막대, 첫 화면 고정 제목) =====
+   카드·건반·박자 버튼처럼 누르고 읽는 본문은 불투명하게 두고, 떠 있는 막대만 유리처럼 비치게 한다. */
+:root {
+  --glass-bg: rgba(255, 255, 255, .58);
+  --glass-strong: rgba(246, 244, 239, .8); /* 페이지 배경색: 붙기 전에는 티 나지 않게 */
+  --glass-border: rgba(255, 255, 255, .75);
+  --glass-edge: rgba(0, 0, 0, .07);
+  --glass-shadow: 0 10px 30px rgba(31, 35, 40, .14), 0 1px 3px rgba(31, 35, 40, .08);
+  --glass-shine: inset 0 1px 0 rgba(255, 255, 255, .9);
+  --glass-btn: rgba(255, 255, 255, .55);
+  --glass-blur: blur(22px) saturate(180%);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glass-bg: rgba(36, 40, 46, .55);
+    --glass-strong: rgba(21, 23, 26, .8);
+    --glass-border: rgba(255, 255, 255, .13);
+    --glass-edge: rgba(255, 255, 255, .08);
+    --glass-shadow: 0 10px 30px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+    --glass-shine: inset 0 1px 0 rgba(255, 255, 255, .1);
+    --glass-btn: rgba(255, 255, 255, .08);
+  }
+}
+
+/* 게임 화면 위쪽: 스크롤해도 위에 떠 있는 둥근 막대 */
+.topbar {
+  position: -webkit-sticky;
+  position: sticky;
+  top: max(8px, env(safe-area-inset-top));
+  z-index: 8;
+  margin: 0 -6px;
+  padding: 4px 10px 4px 14px;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shine), var(--glass-shadow);
+}
+.topbar button.link { padding: 8px 0; }
+
+/* 아래 버튼 막대: 양옆·아래에서 띄운 알약 모양 */
+#screen-game { padding-bottom: 104px; }
+.action-bar {
+  left: 50%;
+  right: auto;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(528px, calc(100vw - 24px));
+  padding: 7px;
+  gap: 7px;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shine), var(--glass-shadow);
+}
+.action-bar > button { border-radius: 999px; min-height: 48px; }
+.action-bar > button:not(.primary) { background: var(--glass-btn); border-color: var(--glass-edge); }
+
+/* 첫 화면 고정 제목: 뒤로 지나가는 단계 카드가 흐릿하게 비침 */
+.game-head {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: 0 1px 0 var(--glass-edge), 0 6px 18px -12px rgba(0, 0, 0, .25);
+}
+
+/* 흐림 효과를 못 쓰거나 '투명도 줄이기'를 켠 경우: 불투명하게 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .topbar, .action-bar { background: var(--surface); }
+  .game-head { background: var(--bg); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .topbar, .action-bar { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .game-head { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* 결과 색 3단계: 정답 초록 · 아깝다 주황 · 틀림 빨강 */
+.feedback.warn { color: var(--warn); }
+/* 부르기 단계 꼬리표, 잠김 자물쇠 */
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--muted);
+  vertical-align: 2px;
+}
+.stage-num svg { display: block; color: var(--muted); }
