@@ -451,3 +451,19 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .topbar, .action-bar { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .game-head { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
+
+/* 결과 색 3단계: 정답 초록 · 아깝다 주황 · 틀림 빨강 */
+.feedback.warn { color: var(--warn); }
+/* 부르기 단계 꼬리표, 잠김 자물쇠 */
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--muted);
+  vertical-align: 2px;
+}
+.stage-num svg { display: block; color: var(--muted); }
