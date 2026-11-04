@@ -3,7 +3,8 @@
  * 4) 화음 청음: 3화음의 장·단(감·증)을 구별하고, 화음 속 베이스·소프라노·가운데 음을 찾는다.
  * 3) 박자 따라 하기: 들려준 리듬을 메트로놈에 맞춰 버튼으로 따라 친다. 이어폰 지연을 재서 보정한다.
  * 6) 첫 음 잡기: 기준음만 듣고 목표 음을 부르면 마이크로 음정을 잰다(녹음은 저장하지 않음).
- * - 소리는 Web Audio로 직접 합성한다(음원 파일 없음).
+ * - 피아노 소리는 그랜드 피아노 녹음(Salamander Grand Piano V3, CC BY 3.0)을 쓰고, 준비되기 전에는 합성음으로 낸다.
+ *   효과음·메트로놈은 Web Audio로 직접 합성한다.
  * - 음 계단 그림은 p5(instance mode)로 그린다.
  */
 (() => {
@@ -144,14 +145,76 @@
       master.gain.value = 0.8;
       master.connect(comp);
       comp.connect(ctx.destination);
-      // 피아노에 가까운 배음 구성
-      const harmonics = [0, 1, 0.55, 0.32, 0.2, 0.13, 0.08, 0.05, 0.03];
-      wave = ctx.createPeriodicWave(new Float32Array(harmonics.length), new Float32Array(harmonics));
+      wave = makeWave(ctx);
+      loadPiano();
     }
     if (ctx.state !== 'running') ctx.resume();
   }
 
+  // 피아노 녹음을 못 불러왔을 때 쓰는 합성음: 피아노에 가까운 배음 구성
+  const HARMONICS = [0, 1, 0.55, 0.32, 0.2, 0.13, 0.08, 0.05, 0.03];
+  const makeWave = (ac) => ac.createPeriodicWave(new Float32Array(HARMONICS.length), new Float32Array(HARMONICS));
+
+  // ---------- 그랜드 피아노 소리 ----------
+  // audio/piano-data.js 에 3반음 간격으로 녹음 10개(낮은 도~높은 레♯)가 들어 있다.
+  // 사이 음은 가장 가까운 녹음을 조금 빠르게/느리게 재생해서 낸다(최대 ±1반음).
+  let piano = null; // Map: 녹음된 음 번호 → { buf, start, gain }
+  function loadPiano() {
+    const src = window.PIANO_SAMPLES;
+    if (!src || piano) return;
+    piano = new Map(); // 하나씩 준비되는 대로 씀
+    Object.entries(src).forEach(([m, b64]) => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // 옛 사파리는 decodeAudioData가 Promise를 돌려주지 않아 콜백 방식으로
+      ctx.decodeAudioData(bytes.buffer, (buf) => {
+        const d = buf.getChannelData(0);
+        let peak = 0;
+        for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+        let first = 0; // mp3 앞의 짧은 무음 건너뛰기
+        while (first < d.length && Math.abs(d[first]) < peak * 0.05) first++;
+        // 실제 녹음은 건반마다 조율이 조금씩 다름(높은 음은 조금 높게 조율됨) → 음높이를 재서 재생 속도로 바로잡음.
+        // 높은 음은 소리가 빨리 줄어 늦게 재면 안 잡히므로, 시작 직후 여러 구간에서 재서 가운데 값을 씀.
+        const want = 440 * Math.pow(2, (Number(m) - 69) / 12);
+        const cs = [];
+        [0.06, 0.09, 0.12, 0.15, 0.2, 0.25, 0.3].forEach((sec) => {
+          const at = first + Math.floor(buf.sampleRate * sec);
+          if (at + 2048 > d.length) return;
+          const r = detectPitch(d.subarray(at, at + 2048), buf.sampleRate);
+          if (r) cs.push(1200 * Math.log2(r.freq / want));
+        });
+        cs.sort((a, b) => a - b);
+        const c = cs.length ? cs[Math.floor(cs.length / 2)] : 0;
+        const tune = Math.abs(c) < 40 ? Math.pow(2, -c / 1200) : 1; // 엉뚱하게 재졌으면 보정하지 않음
+        piano.set(Number(m), { buf, start: Math.max(0, first - 32) / buf.sampleRate, gain: 0.9 / (peak || 1), tune, cents: c });
+      }, () => { /* 실패하면 합성음 */ });
+    });
+  }
+  function pianoSample(midi) {
+    if (!piano || !piano.size) return null;
+    let best = null, dist = 99;
+    piano.forEach((v, m) => { const d = Math.abs(m - midi); if (d < dist) { dist = d; best = [m, v]; } });
+    return dist <= 4 ? best : null;
+  }
+
   function tone(midi, t, dur, vol = 0.45) {
+    const smp = pianoSample(midi);
+    if (smp) { // 그랜드 피아노 녹음
+      const [m, p] = smp;
+      const src = ctx.createBufferSource();
+      src.buffer = p.buf;
+      src.playbackRate.value = Math.pow(2, (midi - m) / 12) * p.tune;
+      const g = ctx.createGain();
+      const level = vol * p.gain;
+      g.gain.setValueAtTime(level, t);
+      g.gain.setValueAtTime(level, t + dur);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.35); // 건반에서 손을 떼면 줄어듦
+      src.connect(g); g.connect(master);
+      src.start(t, p.start);
+      src.stop(t + dur + 0.4);
+      return;
+    }
     const f = 440 * Math.pow(2, (midi - 69) / 12);
     const o = ctx.createOscillator();
     o.setPeriodicWave(wave);
@@ -409,6 +472,22 @@
     return { freq: sr / better, clarity: 1 - d[tau], rms };
   }
   window.ChoirPitch = { detect: detectPitch, question: () => q }; // 테스트용
+  // 테스트·미리 듣기용: 피아노(또는 합성음)로 낸 소리를 파일로 만들 때 씀
+  window.ChoirAudio = {
+    pianoReady: () => (piano ? piano.size : 0),
+    pianoTuning: () => (piano ? [...piano].map(([m, p]) => [m, Math.round(p.cents * 10) / 10]) : []),
+    tone: (...a) => tone(...a),
+    chord: (...a) => chordTone(...a),
+    async render(seconds, play, { synth = false } = {}) {
+      const off = new OfflineAudioContext(2, Math.ceil(44100 * seconds), 44100);
+      const comp = off.createDynamicsCompressor(), m = off.createGain();
+      m.gain.value = 0.8; m.connect(comp); comp.connect(off.destination);
+      const saved = [ctx, master, wave, piano];
+      ctx = off; master = m; wave = makeWave(off); if (synth) piano = null;
+      try { play(0.05); } finally { [ctx, master, wave, piano] = saved; }
+      return off.startRendering();
+    },
+  };
 
   function makeSingQuestion() {
     let ref, target, key;
@@ -1591,7 +1670,7 @@
   // ---------- 새 버전 자동 반영 ----------
   // 주소는 항상 https://love540.github.io/choir-pitch-game 하나. 배포할 때 APP_VERSION, version.json,
   // html의 ?v= 숫자를 함께 올리면, 열려 있던 페이지도 다음에 열거나 돌아올 때 스스로 새 버전으로 바뀐다.
-  const APP_VERSION = 15;
+  const APP_VERSION = 16;
   async function checkForUpdate() {
     if (location.protocol === 'file:') return; // 로컬 버전은 확인하지 않음
     try {
