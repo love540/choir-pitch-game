@@ -130,9 +130,21 @@ local.html      로컬 버전 (p5: lib/)
 game.js         게임 로직(기준음 청음, 화음 청음, 박자 따라 하기, 첫 음 잡기), 소리 합성(Web Audio), 음 높이 측정(YIN), 그림(p5)
 style.css       화면 스타일 (밝은/어두운 모드)
 lib/p5.min.js   p5.js 1.9.4 (LGPL-2.1, lib/p5-LICENSE.txt)
+audio/piano/    그랜드 피아노 녹음 10개 (낮은 도~높은 레♯, 3반음 간격, 각 3.5초)
+audio/piano-data.js  위 녹음을 묶은 파일 (tools/make_piano_data.py로 만듦)
+version.json    배포 버전 (열려 있는 페이지가 새 버전을 알아채는 데 씀)
 ```
 
-소리는 음원 파일 없이 Web Audio로 직접 합성합니다.
+### 소리
+
+- **피아노**: 실제 그랜드 피아노 녹음(Salamander Grand Piano V3, 야마하 C5)을 씁니다.
+  - 3반음 간격 녹음 10개만 넣고, 사이 음은 가까운 녹음을 조금 빠르게/느리게 재생합니다(최대 ±1반음).
+  - 실제 피아노는 건반마다 조율이 조금씩 다르므로(높은 음은 최대 14센트 높게 조율됨), 불러올 때 녹음마다 음높이를 재서 바로잡습니다. 게임에서 쓰는 모든 음이 평균율에서 2센트 이내입니다.
+  - 원본 녹음은 16초짜리라 앞 무음을 자르고 3.5초에서 페이드아웃해 줄였습니다(합계 약 520KB).
+  - 녹음을 불러오기 전(첫 순간)이나 불러오지 못하면 합성음으로 냅니다.
+- **효과음·메트로놈**: Web Audio로 직접 합성합니다.
+
+**출처 표기**: 피아노 소리 — Salamander Grand Piano V3, Alexander Holm, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) ([원본](https://archive.org/details/SalamanderGrandPianoV3), npm `@audio-samples/piano-mp3-velocity8` 의 velocity 8 녹음). 앱 첫 화면 아래에도 표기합니다.
 
 ---
 
